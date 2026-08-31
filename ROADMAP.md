@@ -52,13 +52,15 @@ prediction:
 - **Air Canada (2024):** held liable for a refund policy its chatbot
   invented. "No difference whether the info comes from a static page or a
   chatbot."
-- **Germany (May 2026):** company liable for its AI chatbot's wrong answers.
-  **UK CMA (Mar 2026):** same consumer law for AI as humans — liable even if
-  a third party built the agent. **PYMNTS 2026:** "you own what your chatbot
-  says." Chevy dealership chatbot sold a Tahoe for $1 "legally binding."
-- **Lloyd's of London (2025):** launched insurance for AI-hallucination
-  losses — the risk is now formally priced. Agentic commerce has an open
-  "who pays when the AI is wrong" chargeback gap; the merchant holds the bill.
+- **Reported / unverified — re-check before citing publicly:** additional
+  2026 rulings and regulator statements (e.g. a German court, the UK CMA) are
+  reported to affirm the same principle even when a third party built the
+  agent, and insurers (Lloyd's of London) are said to be pricing
+  AI-hallucination risk. Treat these as directional market signal, NOT cited
+  fact — only Air Canada above is a confirmed, linked precedent. (Cut a
+  much-repeated "Chevy $1 Tahoe, legally binding" line: that 2023 event was a
+  prompt-injection demo, never litigated or held binding — exactly the
+  misinformation this project exists to stop, so it can't live in our docs.)
 
 So the buyer is any business whose AI states prices/policies/eligibility a
 customer acts on — and as agents move to checkout (ACP live), that's a huge,

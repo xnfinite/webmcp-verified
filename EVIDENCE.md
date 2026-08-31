@@ -1,6 +1,6 @@
 # Evidence — auto-generated
 
-_Regenerated 2026-08-31 20:16 UTC by `node scripts/evidence.mjs`. Reproducible: clone,
+_Regenerated 2026-08-31 20:29 UTC by `node scripts/evidence.mjs`. Reproducible: clone,
 run the command, get this file. Nothing here is asserted by hand._
 
 ## Guarantees, tested live
@@ -19,10 +19,10 @@ run the command, get this file. Nothing here is asserted by hand._
     "grounded": 2,
     "fallback": 1,
     "error": 0,
-    "avgMs": 5,
-    "maxMs": 14.7,
-    "totalTokens": 158,
-    "avgTokens": 53
+    "avgMs": 5.2,
+    "maxMs": 15.2,
+    "totalTokens": 136,
+    "avgTokens": 45
   }
 ```
 
@@ -52,10 +52,10 @@ PASS stamps provenance
 PASS unknown returns fallback with no invented price
 PASS internal surface shows internal rows
 PASS metrics record grounded + fallback
-PASS metrics record token cost (30 avg)
+PASS metrics record token cost (24 avg)
 PASS manifest line is lean (first sentence only)
 PASS describe_tool serves full detail on demand
-PASS compact provenance costs fewer tokens (8 < 26)
+PASS compact provenance costs fewer tokens (8 < 15)
 PASS harness flags a margin leak
 PASS unknown/injected args are dropped (only schema props reach resolve)
 PASS missing required field reported, no value invented
