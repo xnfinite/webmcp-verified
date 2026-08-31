@@ -1,0 +1,40 @@
+{
+  "name": "webmcp-verified",
+  "version": "0.1.0",
+  "description": "Build WebMCP agent tools that cannot hallucinate. Every value an agent gets is derived from a declared source; off-source questions return a fallback, never a guess. Ships a conformance + journey harness.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./harness": "./src/harness.js"
+  },
+  "files": ["src", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node test/smoke.mjs",
+    "example": "node examples/auto-shop.mjs",
+    "evidence": "node scripts/evidence.mjs"
+  },
+  "keywords": [
+    "webmcp",
+    "web-model-context-protocol",
+    "navigator.modelContext",
+    "ai-agents",
+    "agent-tools",
+    "agentic-web",
+    "agent-ready",
+    "mcp",
+    "mcp-tools",
+    "tool-provenance",
+    "no-hallucination",
+    "hallucination-free",
+    "grounded-ai",
+    "token-efficient",
+    "ai-accountability",
+    "audit-trail"
+  ],
+  "license": "MIT",
+  "author": "Nightflow Systems",
+  "repository": { "type": "git", "url": "https://github.com/xnfinite/webmcp-verified" },
+  "engines": { "node": ">=18" },
+  "sideEffects": false
+}
