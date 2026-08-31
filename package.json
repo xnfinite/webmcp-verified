@@ -1,18 +1,20 @@
 {
   "name": "webmcp-verified",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Build agent tools that can't invent values outside your data. Answers derive from a declared source; off-source returns a fallback, never a guess. Token-lean, with an audit receipt. WebMCP/MCP, zero dependencies.",
   "type": "module",
   "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "exports": {
     ".": "./src/index.js",
     "./harness": "./src/harness.js"
   },
-  "files": ["src", "README.md", "LICENSE"],
+  "files": ["src", "examples", "scripts", "test", "EVIDENCE.md", "ROADMAP.md", "README.md", "LICENSE"],
   "scripts": {
     "test": "node test/smoke.mjs",
     "example": "node examples/auto-shop.mjs",
-    "evidence": "node scripts/evidence.mjs"
+    "evidence": "node scripts/evidence.mjs",
+    "discovery": "node scripts/discovery.mjs"
   },
   "keywords": [
     "webmcp",

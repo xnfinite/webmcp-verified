@@ -11,7 +11,10 @@
  *  2. CHEAP FOR THE AGENT (the ICM way). Progressive disclosure: agents load
  *     a lean manifest (name + one line), pull full detail only when needed,
  *     and get compact results. Every call's output tokens are metered, so
- *     you can prove the cost — counts, not rounded rates.
+ *     you can prove the per-call cost — counts, not rounded rates. The bigger
+ *     DISCOVERY axis — the descriptions + schemas an agent loads to CHOOSE
+ *     among ALL tools — is measured by discoveryCost()/discoveryBreakEven(),
+ *     not just per-call output.
  *
  * Dependency-free ESM. Browser (real WebMCP) + Node (tests). Spec shape per
  * the W3C WebMCP draft: registerTool / getTools / executeTool.
@@ -141,7 +144,12 @@ export function defineTool(def) {
   assert(typeof def.source === "function", `tool "${def.name}": source() required`);
   assert(typeof def.resolve === "function", `tool "${def.name}": resolve() required`);
   const surface = def.surface || "customer";
-  const metrics = def.metrics || defineTool._m || (defineTool._m = new Metrics());
+  // Each tool gets its OWN meter when none is passed. (Was a process-global
+  // singleton on defineTool._m, which bled calls/tokens/outcomes between
+  // unrelated tools — corrupting the "measured, not claimed" metering for the
+  // default usage. Callers wanting one shared meter across a toolkit pass an
+  // explicit `metrics:` to every tool.)
+  const metrics = def.metrics || new Metrics();
   const sourceName = def.sourceName || "the declared source";
   const provStyle = def.provenance || "full";
   const auditSink = typeof def.audit === "function" ? def.audit : (def.audit && typeof def.audit.push === "function" ? (r) => def.audit.push(r) : null);
@@ -160,12 +168,23 @@ export function defineTool(def) {
     help: def.help || def.description,             // full detail, fetched only on demand
     async execute(rawArgs) {
       const t0 = metrics.now();
+      let clean;
       try {
         // hard input boundary BEFORE any source/resolve runs
-        const { clean, missing } = validateArgs(rawArgs, def.inputSchema);
-        if (missing.length) {
-          metrics.record(def.name, "fallback", metrics.now() - t0, 0);
-          return { content: [{ type: "text", text: `Missing required field(s): ${missing.join(", ")}. No value returned.` }] };
+        const v = validateArgs(rawArgs, def.inputSchema);
+        clean = v.clean;
+        if (v.missing.length) {
+          // Input-validation rejection is still a real answer: it must meter
+          // its own tokens and emit a receipt like any other reply (README:
+          // "every answer emits a receipt"). sourceHash is null on purpose —
+          // validation runs BEFORE def.source(), so no source was consulted;
+          // the receipt says so rather than fabricating a source hash.
+          const text = `Missing required field(s): ${v.missing.join(", ")}. No value returned.`;
+          metrics.record(def.name, "fallback", metrics.now() - t0, estimateTokens(text));
+          if (auditSink) auditSink({ at: clock(), tool: def.name, outcome: "fallback", surface, sourceName,
+            argKeys: Object.keys(clean), resultHash: fingerprint(text), sourceHash: null });
+          return { content: [{ type: "text", text }],
+            structuredContent: { sourced: false, outcome: "fallback", missing: v.missing, values: {} } };
         }
         const data = await def.source();
         let resolved = def.resolve(clean, data), outcome = "grounded";
@@ -184,7 +203,18 @@ export function defineTool(def) {
         return { content: [{ type: "text", text }],
           structuredContent: { sourced: outcome === "grounded", outcome,
             values: Object.fromEntries((shown.lines || []).map(([k, v]) => [k, v])) } };
-      } catch (e) { metrics.record(def.name, "error", metrics.now() - t0, 0); throw e; }
+      } catch (e) {
+        // Return an actionable tool-error result the agent can READ and route
+        // around (isError:true), instead of throwing a transport-level error
+        // that breaks its plan. sourceHash is null: on failure we can't know
+        // the source state. The harness treats isError as a journey failure.
+        const text = `Tool error: ${e && e.message ? e.message : String(e)}. No value returned.`;
+        metrics.record(def.name, "error", metrics.now() - t0, estimateTokens(text));
+        if (auditSink) auditSink({ at: clock(), tool: def.name, outcome: "error", surface, sourceName,
+          argKeys: clean ? Object.keys(clean) : [], resultHash: fingerprint(text), sourceHash: null });
+        return { content: [{ type: "text", text }], isError: true,
+          structuredContent: { sourced: false, outcome: "error", error: text, values: {} } };
+      }
     },
     _metrics: metrics
   };
@@ -199,6 +229,18 @@ export function defineTool(def) {
 export function manifest(tools) { return tools.map((t) => ({ name: t.name, description: t.description })); }
 
 /**
+ * The on-demand describe payload for ONE tool — the exact string
+ * describe_tool returns. Extracted so the measured lean on-demand cost
+ * (discoveryCost) EQUALS the real artifact with no format drift: this is the
+ * single source of truth for both the served text and the metered text.
+ * @param {{name:string, help?:string, description?:string, inputSchema:object}} tool
+ * @returns {string}
+ */
+export function describeText(tool) {
+  return `${tool.name}\n${tool.help || tool.description || ""}\nInput: ${JSON.stringify(tool.inputSchema)}`;
+}
+
+/**
  * A meta-tool implementing progressive disclosure: an agent calls
  * describe_tool({name}) to get full detail for one tool, instead of every
  * page load paying for every tool's long description up front.
@@ -211,10 +253,96 @@ export function describeTool(tools) {
     inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
     async execute({ name }) {
       const t = byName.get(name);
-      const text = t ? `${t.name}\n${t.help}\nInput: ${JSON.stringify(t.inputSchema)}` : `No tool named "${name}". Available: ${[...byName.keys()].join(", ")}.`;
+      const text = t ? describeText(t) : `No tool named "${name}". Available: ${[...byName.keys()].join(", ")}.`;
       return { content: [{ type: "text", text }] };
     }
   };
+}
+
+/**
+ * THE HEADLINE — meter the DISCOVERY token axis: the descriptions + schemas
+ * an agent loads to CHOOSE among tools, before it calls anything.
+ *
+ * NAIVE path = what a generic MCP/WebMCP surface forces up front: the result
+ * of tools/list (MCP) / navigator.modelContext.getTools() (WebMCP) — a FULL
+ * Tool descriptor { name, description, inputSchema } for EVERY registered
+ * tool, all resident at once. Base MCP has no lazy/paged descriptor fetch.
+ *
+ * LEAN path = this library's progressive disclosure: the name-only manifest
+ * for all N tools + the fixed describe_tool descriptor + the full describe
+ * payload for only the `used` tools the agent actually pulls. The heavy part
+ * (inputSchema + full help) is never loaded for the N−used tools not chosen.
+ *
+ * Both paths are serialized identically (canonical JSON.stringify) and counted
+ * with the SAME gauge, so `savedPct` and the break-even are robust to the ~4-
+ * char approximation (the factor cancels in the ratio). ABSOLUTE counts are
+ * gauge estimates, not tokenizer-exact. It measures tokens, not reasoning
+ * quality, and is "per discovery" = per context-load of the tool list (per
+ * session/page), NOT per tool call. Deterministic and dependency-free: same
+ * input → byte-identical output.
+ *
+ * @param {Array} tools  the real tool set (a `describe_tool` in it is filtered
+ *                       out to avoid double-counting the meta-tool overhead)
+ * @param {{used?:number, estimate?:(s:string)=>number, fullText?:(t:any)=>string}} [opts]
+ *        used     tools the agent describes+calls this visit (default 1, clamped to [0,N])
+ *        estimate token gauge (default estimateTokens)
+ *        fullText naive `description` text (default t.help||t.description — the
+ *                 full explanation you'd otherwise ship with no help split)
+ */
+export function discoveryCost(tools, opts = {}) {
+  const estimate = opts.estimate || estimateTokens;
+  const fullText = opts.fullText || ((t) => t.help || t.description || "");
+  const real = (tools || []).filter((t) => t && t.name !== "describe_tool");
+  const N = real.length;
+  let used = opts.used == null ? 1 : opts.used;
+  used = Math.max(0, Math.min(used, N));
+
+  // NAIVE: every tool's full descriptor, resident up front.
+  const perTool = real.map((t) => ({
+    name: t.name,
+    tokens: estimate(JSON.stringify({ name: t.name, description: fullText(t), inputSchema: t.inputSchema }))
+  }));
+  const naiveTotal = perTool.reduce((a, p) => a + p.tokens, 0);
+
+  // LEAN: name-only manifest (all N) + fixed describe_tool descriptor +
+  // full describe payload for only the `used` tools.
+  const manifestTokens = estimate(JSON.stringify(manifest(real)));
+  const dt = describeTool(real);
+  const describeToolDescriptor = estimate(JSON.stringify({ name: dt.name, description: dt.description, inputSchema: dt.inputSchema }));
+  const describedTools = real.slice(0, used).map((t) => ({ name: t.name, tokens: estimate(describeText(t)) }));
+  const onDemand = describedTools.reduce((a, d) => a + d.tokens, 0);
+  const leanTotal = manifestTokens + describeToolDescriptor + onDemand;
+
+  const saved = naiveTotal - leanTotal;
+  const savedPct = naiveTotal === 0 ? 0 : Math.round((saved / naiveTotal) * 100);
+  return {
+    tools: N, used, gauge: estimate.name || "custom",
+    naive: { total: naiveTotal, perTool },
+    lean: { total: leanTotal, manifest: manifestTokens, describeToolDescriptor, onDemand, describedTools },
+    saved, savedPct, leanWins: saved > 0
+  };
+}
+
+/**
+ * The honest few-tools caveat, COMPUTED not asserted. Evaluates discoveryCost
+ * on prefixes tools.slice(0,n) for n=1..N and returns the smallest n where
+ * lean first wins, plus the full curve — the reproducible "where the line is"
+ * number. Lean loses at few tools (the describe_tool round-trip costs more
+ * than it saves); this reports exactly where it flips for a given set.
+ * @returns {{n:number|null, saved:number, perN:Array<{n:number,naive:number,lean:number,saved:number,leanWins:boolean}>}}
+ */
+export function discoveryBreakEven(tools, opts = {}) {
+  const real = (tools || []).filter((t) => t && t.name !== "describe_tool");
+  const N = real.length;
+  const perN = [];
+  let firstWin = null;
+  for (let n = 1; n <= N; n++) {
+    const c = discoveryCost(real.slice(0, n), opts);  // used clamps to n inside
+    perN.push({ n, naive: c.naive.total, lean: c.lean.total, saved: c.saved, leanWins: c.leanWins });
+    if (firstWin === null && c.leanWins) firstWin = n;
+  }
+  const saved = firstWin !== null ? perN[firstWin - 1].saved : (perN.length ? perN[perN.length - 1].saved : 0);
+  return { n: firstWin, saved, perN };
 }
 
 /** Register tools with a WebMCP host (document.modelContext) or any registerTool host. */
@@ -224,4 +352,4 @@ export function mount(host, tools, opts = {}) {
   return { count: tools.length, metrics: tools[0] && tools[0]._metrics, unregister() { for (const h of handles) if (h && h.unregister) h.unregister(); } };
 }
 
-export const version = "0.5.0";
+export const version = "0.6.0";

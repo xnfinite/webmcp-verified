@@ -3,8 +3,15 @@
  * Verifies: grounded answers, no-guess fallback, surface split, metrics
  * (incl. token cost), and the progressive-disclosure manifest/describe.
  */
-import { defineTool, Metrics, manifest, describeTool, estimateTokens, AuditLog, fingerprint } from "../src/index.js";
-import { runJourneys } from "../src/harness.js";
+import { defineTool, mount, Metrics, manifest, describeTool, describeText, discoveryCost, discoveryBreakEven, estimateTokens, AuditLog, fingerprint } from "../src/index.js";
+import { runJourneys, LEAK } from "../src/harness.js";
+import * as INDEX_NS from "../src/index.js";
+import * as HARNESS_NS from "../src/harness.js";
+import { buildSurface } from "../scripts/_surface.mjs";
+import { readFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 let failures = 0;
 const ok = (c, n) => { console.log((c ? "PASS " : "FAIL ") + n); if (!c) failures++; };
@@ -128,6 +135,219 @@ ok(scOut.structuredContent && scOut.structuredContent.sourced === true && scOut.
 const scFall = await sc.execute({ item: "zzz" });
 ok(scFall.structuredContent && scFall.structuredContent.sourced === false,
   "fallback call marks structuredContent.sourced = false");
+
+// --- discovery-axis metering (v0.6) ---
+
+// A realistic multi-tool surface: multi-sentence help + a real 3-prop schema.
+const mkTool = (i) => defineTool({
+  name: "tool_" + i,
+  description: "Tool number " + i + " does a specific lookup from the source.",
+  help: "Tool number " + i + " returns a specific value derived from the declared source. It never authors a number; off-source inputs return a fallback, not a guess. This is multi-sentence long-form help the naive path would otherwise load for every tool up front.",
+  inputSchema: { type: "object", properties: { a: { type: "string" }, b: { type: "number" }, c: { type: "boolean" } }, required: ["a"] },
+  source: () => CARD, resolve: () => ({ lines: [["ok", 1]] })
+});
+const twelve = Array.from({ length: 12 }, (_, i) => mkTool(i + 1));
+
+// T26 — shared formatter: the metered lean payload EQUALS the real artifact.
+const dtTool = defineTool({ ...base, name: "dtx" });
+const dtVia = (await describeTool([dtTool]).execute({ name: "dtx" })).content[0].text;
+ok(describeText(dtTool) === dtVia, "T26 describeText equals real describe_tool output (no format drift)");
+
+// T27 — naive loads FULL text + schema per tool (heavier than the lean line).
+const t27 = defineTool({
+  name: "t27", description: "Short one-line.",
+  help: "Short one-line. Plus much more long-form help text that is strictly longer than the lean one-line description so the naive path is provably heavier.",
+  inputSchema: { type: "object", properties: { item: { type: "string" } }, required: ["item"] },
+  source: () => CARD, resolve: () => null
+});
+const dc27 = discoveryCost([t27]);
+const leanLine27 = estimateTokens(JSON.stringify({ name: t27.name, description: t27.description }));
+ok(dc27.naive.perTool.length === 1 && dc27.naive.total === dc27.naive.perTool[0].tokens && dc27.naive.perTool[0].tokens > leanLine27,
+  "T27 naive loads full text + schema per tool (heavier than the lean manifest line)");
+
+// T28 — lean components sum to total; no hidden terms.
+const dc28 = discoveryCost(twelve, { used: 3 });
+const sumDescribed28 = dc28.lean.describedTools.reduce((a, d) => a + d.tokens, 0);
+ok(dc28.lean.total === dc28.lean.manifest + dc28.lean.describeToolDescriptor + dc28.lean.onDemand && dc28.lean.onDemand === sumDescribed28,
+  "T28 lean.total = manifest + describeToolDescriptor + onDemand (structural honesty)");
+
+// T29 — the headline direction holds at many tools.
+const dc29 = discoveryCost(twelve);
+ok(dc29.saved > 0 && dc29.savedPct > 0 && dc29.leanWins === true,
+  `T29 lean wins at 12 tools (saved ${dc29.saved}, ${dc29.savedPct}%)`);
+
+// T30 — the caveat is real: lean LOSES at N=1.
+const dc30 = discoveryCost([mkTool(99)], { used: 1 });
+ok(dc30.saved <= 0 && dc30.leanWins === false, "T30 lean loses at N=1 (describe_tool round-trip costs more than it saves)");
+
+// T31 — break-even is computed, not asserted.
+const be31 = discoveryBreakEven(twelve);
+ok(typeof be31.n === "number" && be31.n >= 2 && be31.n <= 12 && be31.perN.length === 12 && be31.perN[be31.n - 1].leanWins === true && be31.perN.some((r) => r.leanWins === false),
+  `T31 break-even computed (lean overtakes naive at n=${be31.n})`);
+
+// T32 — determinism: same input -> byte-identical output.
+ok(JSON.stringify(discoveryCost(twelve)) === JSON.stringify(discoveryCost(twelve)), "T32 discoveryCost is deterministic (EVIDENCE numbers reproduce)");
+
+// T33 — savedPct formula + divide-by-zero guard.
+const dc33 = discoveryCost(twelve);
+ok(dc33.savedPct === Math.round((dc33.saved / dc33.naive.total) * 100), "T33 savedPct = round(saved/naive*100)");
+const dcEmpty = discoveryCost([]);
+ok(dcEmpty.naive.total === 0 && dcEmpty.savedPct === 0 && dcEmpty.leanWins === false, "T33 empty set: no divide-by-zero (savedPct 0, no NaN/Infinity)");
+
+// T34 — used scales the lean cost, clamps to N, and describe_tool is filtered.
+const used1 = discoveryCost(twelve, { used: 1 }).lean.total;
+const used2 = discoveryCost(twelve, { used: 2 }).lean.total;
+const clamped = discoveryCost(twelve, { used: 999 });
+const withDT = discoveryCost([...twelve, describeTool(twelve)]);
+ok(used2 > used1 && clamped.used === twelve.length && withDT.tools === twelve.length,
+  "T34 used scales lean cost, clamps to N, describe_tool filtered (not double-counted)");
+
+// --- benchmark headline: the EVIDENCE number is pinned to a test (v0.6) ---
+
+// The realistic store/service surface used by scripts/benchmark.mjs and
+// scripts/discovery.mjs. Importing it here pins the published headline number
+// to a passing assertion — the claim in EVIDENCE.md is not just script output.
+const surface = buildSurface();
+
+// T37 — the surface is 12 DIVERSE tools (distinct names, real multi-prop
+// schemas), not 12 clones — so the measurement reflects a realistic mix.
+const names = new Set(surface.map((t) => t.name));
+const maxProps = Math.max(...surface.map((t) => Object.keys(t.inputSchema.properties).length));
+ok(surface.length === 12 && names.size === 12 && maxProps >= 4,
+  `T37 realistic surface is 12 distinct tools with real schemas (max ${maxProps} props)`);
+
+// T38 — the exact headline numbers benchmark.mjs prints, pinned. If the surface
+// or the metering changes, this fails and EVIDENCE.md must be regenerated —
+// the published "saved 897 (67%)" can never silently drift from the code.
+const bc = discoveryCost(surface);            // used=1
+const bbe = discoveryBreakEven(surface);
+ok(bc.naive.total === 1340 && bc.lean.total === 443 && bc.saved === 897 && bc.savedPct === 67 && bbe.n === 2,
+  `T38 benchmark headline pinned: ${bc.tools} tools, naive ${bc.naive.total}, lean ${bc.lean.total}, saved ${bc.saved} (${bc.savedPct}%), break-even n=${bbe.n}`);
+
+// --- integrity fixes (v0.6) ---
+
+// Fix 1 — missing-required path meters tokens + emits a receipt + structuredContent.
+let f1tick = 5000;
+const f1metrics = new Metrics();
+const f1audit = new AuditLog();
+const f1 = defineTool({ ...base, name: "f1", metrics: f1metrics, audit: f1audit, now: () => f1tick++ });
+const f1out = await f1.execute({});   // missing required 'item'
+const f1rec = f1audit.all().pop();
+ok(f1audit.all().length === 1 && f1rec.outcome === "fallback" && /^[0-9a-f]{8}$/.test(f1rec.resultHash) && f1rec.sourceHash === null,
+  "Fix1 missing-required emits a receipt (fallback, hashed result, null sourceHash — source not consulted)");
+ok(f1metrics.report().f1.totalTokens > 0 && f1out.structuredContent.sourced === false && f1out.structuredContent.missing.includes("item") && /Missing required/.test(f1out.content[0].text) && !/\$\d/.test(f1out.content[0].text),
+  "Fix1 missing-required meters tokens + structuredContent, text unchanged (no invented value)");
+
+// Fix 2 — no-metrics tools get their OWN meter (no process-global bleed).
+const A = defineTool({ ...base, name: "A_tool" });
+const B = defineTool({ ...base, name: "B_tool" });
+await A.execute({ item: "a" }); await A.execute({ item: "a" }); await B.execute({ item: "a" });
+ok(A._metrics !== B._metrics && A._metrics.report().A_tool.calls === 2 && B._metrics.report().B_tool.calls === 1,
+  "Fix2 no-metrics tools get separate meters (no cross-tool bleed)");
+
+// Fix 5 — a thrown source becomes a readable isError result; the harness flags it.
+const f5metrics = new Metrics();
+const f5audit = new AuditLog();
+const throwTool = defineTool({
+  name: "boom", description: "A tool whose source throws, to prove errors are returned not thrown.",
+  inputSchema: { type: "object", properties: { item: { type: "string" } }, required: ["item"] },
+  source: () => { throw new Error("boom"); }, resolve: () => ({ lines: [] }),
+  metrics: f5metrics, audit: f5audit
+});
+const f5out = await throwTool.execute({ item: "a" });
+ok(f5out.isError === true && /^Tool error:/.test(f5out.content[0].text) && /boom/.test(f5out.content[0].text) && !/\$\d/.test(f5out.content[0].text) && f5metrics.report().boom.error === 1 && f5audit.all().pop().outcome === "error",
+  "Fix5 thrown source returns a readable isError result (metered 'error' + receipt), nothing invented");
+const f5h = await runJourneys([throwTool], [{ tool: "boom", args: { item: "a" }, expect: [] }]);
+ok(f5h.allPass === false && /error result/.test(JSON.stringify(f5h)),
+  "Fix5 harness flags the isError result as a journey failure");
+
+// Fix (LEAK) — tightened tripwire: no 'margin of error' false-positive, still catches 'markup'.
+ok(LEAK.test("the margin of error is ±3%") === false && LEAK.test("markup: 50%") === true && LEAK.test("gross margin $40") === true && LEAK.test("our COGS was $12") === true,
+  "LEAK regex: bare-margin false-positive fixed; still catches markup/gross margin/COGS");
+
+// Fix 3 — proof/reproduce assets are shipped in the npm tarball (files[] complete + present).
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+ok(pkg.files.includes("EVIDENCE.md") && pkg.files.includes("examples") && pkg.files.every((f) => existsSync(join(ROOT, f))),
+  "Fix3 package.json files[] ships proof assets (EVIDENCE.md, examples) and every listed path exists");
+
+// --- @mcp-b interop: the library COMPOSES with an incumbent host (examples/mcp-b-interop.mjs) ---
+
+// T35 — a verified tool mounts onto a host that exposes ONLY the documented
+// triad (registerTool/getTools/executeTool), and the whole agent flow —
+// discover, call (grounded), off-source fallback, describe on demand — works
+// driving the host's public surface alone. This is the composition claim.
+function mcpBHostMock() {
+  const reg = new Map();
+  return {
+    registerTool(t) { reg.set(t.name, t); return { unregister() { reg.delete(t.name); } }; },
+    getTools() { return [...reg.values()].map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })); },
+    async executeTool(name, args) { const t = reg.get(name); if (!t) throw new Error("no tool " + name); return t.execute(args); }
+  };
+}
+const interopTool = defineTool({
+  name: "price", description: "Price an item from the list. Off-list items return a fallback, never a guess. Extra help sentence that must stay out of the lean manifest.",
+  inputSchema: { type: "object", properties: { item: { type: "string" } }, required: ["item"] },
+  source: () => CARD, sourceName: "the price list",
+  resolve(a, c) { const it = c.items[a.item]; return it ? { summary: it.label, lines: [["Price", it.cost * 2]] } : null; }
+});
+const iHost = mcpBHostMock();
+const iMounted = mount(iHost, [interopTool, describeTool([interopTool])]);
+const iList = iHost.getTools();
+ok(iMounted.count === 2 && iList.length === 2 && iList.find((t) => t.name === "price").description.length < 90 && !/Extra help sentence/.test(iList.find((t) => t.name === "price").description),
+  "T35 verified tool mounts onto an @mcp-b-style host; getTools exposes the lean descriptor");
+const iGround = (await iHost.executeTool("price", { item: "a" })).content[0].text;
+const iFall = (await iHost.executeTool("price", { item: "zzz" })).content[0].text;
+const iDesc = (await iHost.executeTool("describe_tool", { name: "price" })).content[0].text;
+ok(/Price: \$20\.00/.test(iGround) && /does not guess|fallback|outside/i.test(iFall) && !/\$\d/.test(iFall) && /Extra help sentence/.test(iDesc) && /Input:/.test(iDesc),
+  "T35 agent drives discover/call/fallback/describe entirely through the host surface");
+
+// T36 — the shipped example file actually RUNS under node and grounds a real,
+// computed value ($2,448.00 from the rate card, not authored) plus a no-guess
+// fallback and progressive-disclosure detail. Proves the deliverable, not a
+// reconstruction of it.
+let exOut = "", exRan = false;
+try { exOut = execFileSync(process.execPath, [join(ROOT, "examples", "mcp-b-interop.mjs")], { encoding: "utf8" }); exRan = true; }
+catch (e) { exOut = String((e && e.stdout) || "") + String((e && e.message) || ""); }
+ok(exRan && /\$2,448\.00/.test(exOut) && /Talk to sales|fallback|not a guessed value/i.test(exOut) && /Input:\s*\{/.test(exOut) && /grounded/.test(exOut),
+  "T36 examples/mcp-b-interop.mjs runs via node and grounds a real value through the host");
+
+// --- TypeScript declarations track the real exports (v0.6) ---
+
+// The .d.ts files ship the public types so typed projects resolve them via
+// package.json "types"/"exports". These tests pin the declarations to the
+// ACTUAL runtime exports: a value export added to or removed from src/*.js
+// without updating its .d.ts fails here (no silent type/runtime drift).
+// Dependency-free — a regex over the declaration text, no tsc needed at test time.
+const dtsValueExports = (relPath) => {
+  const text = readFileSync(join(ROOT, relPath), "utf8");
+  const rx = /^export\s+(?:declare\s+)?(?:const|function|class)\s+([A-Za-z_$][\w$]*)/gm;
+  const s = new Set(); let mm;
+  while ((mm = rx.exec(text))) s.add(mm[1]);
+  return s;
+};
+const sameSet = (a, b) => a.size === b.size && [...a].every((k) => b.has(k));
+
+// TD1 — src/index.d.ts value exports exactly match src/index.js runtime exports.
+const idxRuntime = new Set(Object.keys(INDEX_NS));
+const idxDts = existsSync(join(ROOT, "src/index.d.ts")) ? dtsValueExports("src/index.d.ts") : new Set();
+ok(idxDts.size > 0 && sameSet(idxRuntime, idxDts),
+  `TD1 src/index.d.ts value exports match runtime (${idxRuntime.size} exports, no drift)`);
+
+// TD2 — src/harness.d.ts value exports exactly match src/harness.js runtime exports.
+const harRuntime = new Set(Object.keys(HARNESS_NS));
+const harDts = existsSync(join(ROOT, "src/harness.d.ts")) ? dtsValueExports("src/harness.d.ts") : new Set();
+ok(harDts.size > 0 && sameSet(harRuntime, harDts),
+  `TD2 src/harness.d.ts value exports match runtime (${harRuntime.size} exports, no drift)`);
+
+// TD3 — package.json "types" points to an existing declaration file, and the
+// "./harness" subpath export has a co-located .d.ts (so `import ".../harness"`
+// is typed too). Guards the packaging, not just the files.
+const typesEntry = pkg.types && join(ROOT, pkg.types);
+const harnessJs = pkg.exports && pkg.exports["./harness"];
+const harnessDts = typeof harnessJs === "string" ? join(ROOT, harnessJs.replace(/\.js$/, ".d.ts")) : null;
+ok(!!typesEntry && existsSync(typesEntry) && !!harnessDts && existsSync(harnessDts),
+  `TD3 package.json "types" resolves (${pkg.types}) and ./harness has a co-located .d.ts`);
 
 console.log(failures === 0 ? "\nALL SMOKE TESTS PASSED" : `\n${failures} FAILURE(S)`);
 process.exit(failures ? 1 : 0);

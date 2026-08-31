@@ -35,9 +35,12 @@ directional and re-check dates — the space moves monthly.
    bug. Nobody in the SDK layer guarantees source-derived answers. We do, by
    construction. This is the icm-verifier discipline as code.
 2. **Token efficiency (ICM progressive disclosure).** Agents pay per tool
-   description and per result. Lean manifest + describe-on-demand + compact
-   provenance (measured 8 vs 26 tokens) + per-call token metering. A real cost
-   lever the general SDKs don't frame around.
+   description (discovery) and per result. The headline is the DISCOVERY axis,
+   now measured: a 12-tool surface costs 443 lean tokens vs 1340 naive to
+   discover a tool — 67% fewer, break-even n=2 (`node scripts/benchmark.mjs`,
+   pinned by smoke test T38). Plus compact provenance (measured 8 vs 26 tokens
+   whole output; the provenance line itself ~3 vs ~20) and per-call token
+   metering. A real cost lever the general SDKs don't frame around.
 3. **Protocol-agnostic trust layer.** The `source`/`resolve`/`surface`
    discipline is not WebMCP-specific; it maps onto ACP/MCP tool surfaces too.
    Position as "the trust + cost layer for agent tools," not "a WebMCP SDK."
@@ -100,12 +103,27 @@ the tool-return boundary + "stops invention, not every mistake," marked
 the German/CMA rulings "reported," flagged the pre-publish install line,
 and added `structuredContent` (values as data, not prose). Still open,
 tracked here:
-- [ ] Ship `.d.ts` types (emit from JSDoc) — typed libs get recommended
-      by default.
-- [ ] `manifestCost(tools)` / `describeCost(name)` — meter the DISCOVERY
+- [x] Ship `.d.ts` types (emit from JSDoc) — typed libs get recommended
+      by default. **Delivered** — `src/index.d.ts` + `src/harness.d.ts` ship,
+      the `types` field resolves to them, and smoke tests TD1–TD3 assert the
+      declared exports don't drift from the runtime (12 index + 3 harness).
+- [x] `manifestCost(tools)` / `describeCost(name)` — meter the DISCOVERY
       token axis (the actual "cheap for the agent" pitch), not just output.
-- [ ] `@mcp-b/webmcp` interop example (claimed; not yet demonstrated).
-- [ ] Emit an audit receipt on the missing-required path too.
+      **Delivered v0.6** as `discoveryCost(tools)` (lean vs naive, saved,
+      savedPct, leanWins) + `discoveryBreakEven(tools)` (the computed N where
+      lean starts to win). Measured on a 12-tool set: 443 vs 1340 tokens,
+      67% saved (897 tokens), break-even n=2. Headline reproduced by
+      `node scripts/benchmark.mjs` (pinned by smoke test T38); the sibling
+      `scripts/discovery.mjs` prints the per-tool composition. See `EVIDENCE.md`.
+- [x] `@mcp-b/webmcp` interop example. **Delivered** —
+      `examples/mcp-b-interop.mjs` mounts a verified tool onto an
+      @mcp-b-style host by its `registerTool` alone and drives
+      discover/call/fallback/describe through the host surface; runs under
+      Node and grounds a real value. Covered by smoke tests T35–T36.
+- [x] Emit an audit receipt on the missing-required path too. **Delivered
+      v0.6** — the missing-required and error paths now meter tokens, emit a
+      receipt (sourceHash null: source not consulted), and return
+      `structuredContent`; errors return `isError:true`, not a thrown crash.
 
 ## Build order (not one go)
 
@@ -115,8 +133,9 @@ tracked here:
 - [ ] v0.3 — an ACP-shaped adapter (same `source`/`resolve`, emit an ACP
       product-feed / tool schema) so the trust+cost layer reaches where the
       money already is
-- [ ] v0.3 — a README/interop note + example showing use alongside
-      `@mcp-b/webmcp` (complement, don't compete)
+- [x] v0.3 — a README/interop note + example showing use alongside
+      `@mcp-b/webmcp` (complement, don't compete) — shipped as
+      `examples/mcp-b-interop.mjs` + the README "Where it fits" note.
 - [ ] pre-publish — confirm npm name is free; if taken, scope it
       (`@xnfinite/…`); a real flagged-Chrome end-to-end run (closes L-022)
 - [ ] publish (owner: `npm login && npm publish`; then GitHub for discovery)

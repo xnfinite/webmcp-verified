@@ -20,11 +20,14 @@ const run = (cmd) => { try { return { ok: true, out: execSync(cmd, { cwd: root, 
 
 const smoke = run("node test/smoke.mjs");
 const example = run("node examples/auto-shop.mjs");
+const benchmark = run("node scripts/benchmark.mjs");
 
 const passLines = (smoke.out.match(/^PASS /gm) || []).length;
 const failLines = (smoke.out.match(/^FAIL /gm) || []).length;
 const allPass = /ALL SMOKE TESTS PASSED/.test(smoke.out);
 const metrics = (example.out.match(/"get_quote":\s*\{[^}]*\}/) || ["(not captured)"])[0];
+// The measured DISCOVERY headline line, verbatim from the benchmark (not hand-typed).
+const discoveryHeadline = ((benchmark.out.match(/^\d+ tools cost .*$/m) || ["(not captured)"])[0]).trim();
 const stamp = new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
 
 const md = `# Evidence — auto-generated
@@ -49,6 +52,19 @@ ${metrics}
   \`avgTokens\` is the measured cost of a call — the reason an agent prefers
   these tools. \`grounded\` vs \`fallback\` shows the no-guess rule firing.
 
+- **Discovery axis (the headline):** ${benchmark.ok ? "measured" : "ERROR"} by
+  \`node scripts/benchmark.mjs\` on an illustrative 12-tool store/service
+  surface (\`scripts/_surface.mjs\`) —
+
+  > ${discoveryHeadline}
+
+  This is the cost an agent pays to CHOOSE among tools (descriptions + schemas),
+  per context-load of the tool list. \`estimateTokens\` is a ~4-char gauge, so
+  absolute counts are approximate; \`savedPct\` and the break-even n are the
+  robust figures (both paths use the same gauge, so the factor cancels). It
+  counts tokens, not reasoning quality. The exact numbers are pinned by smoke
+  test T38, so this line cannot silently drift from the code.
+
 ## Raw smoke output
 
 \`\`\`
@@ -62,5 +78,5 @@ public repo is a deliberate human step (machine builds, human publishes)._
 `;
 
 writeFileSync(join(root, "EVIDENCE.md"), md, "utf8");
-console.log(`EVIDENCE.md written — smoke ${allPass ? "PASS" : "FAIL"} (${passLines} passed), example ${example.ok ? "ok" : "err"}.`);
-process.exit(allPass && example.ok ? 0 : 1);
+console.log(`EVIDENCE.md written — smoke ${allPass ? "PASS" : "FAIL"} (${passLines} passed), example ${example.ok ? "ok" : "err"}, benchmark ${benchmark.ok ? "ok" : "err"}.`);
+process.exit(allPass && example.ok && benchmark.ok ? 0 : 1);

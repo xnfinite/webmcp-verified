@@ -40,10 +40,14 @@ Two axes, and the pitch is really about the first:
 1. **Discovery** (the big one): the descriptions + schemas the agent
    loads to CHOOSE a tool, on every page visit, across ALL tools. Lean
    manifest + describe-on-demand attacks this. **This is the headline
-   saving and it is currently claimed but NOT measured** (the eval
-   caught this: `Metrics` only counts output tokens).
+   saving and it is now MEASURED** — `discoveryCost` / `discoveryBreakEven`
+   meter it, and `node scripts/benchmark.mjs` prints it: on a 12-tool
+   surface, **443 lean tokens vs 1340 naive to discover a tool — 897 saved,
+   67%, break-even n=2** (pinned by smoke test T38 so it can't drift). The
+   eval's original catch — `Metrics` only counting output tokens — is closed.
 2. **Result** (the small one): the tokens in each answer. Compact
-   provenance attacks this (~8 vs ~26 whole-output on the example).
+   provenance attacks this (~8 vs ~26 whole-output on the example; the
+   provenance line itself ~3 vs ~20).
 
 ## The north star for the "best version"
 
@@ -53,20 +57,23 @@ it** — because we can measure what the ICM paper honestly could not
 well-reasoned pattern"). We can measure ours deterministically. That is
 a real advantage — lead with the measurement, never a bare claim.
 
-Concretely the best version:
-- Measures the DISCOVERY saving: `manifestCost(tools)` vs the full-schema
-  cost the agent would otherwise load, across a realistic N-tool set.
-- Puts that number — "N tools cost X tokens to discover the lean way vs
-  Y the naive way" — as the headline, with a reproducible script.
+Concretely the best version (status: the first two are now DONE):
+- [x] Measures the DISCOVERY saving: `discoveryCost(tools)` (lean vs the
+  full-schema cost the agent would otherwise load) across a realistic
+  12-tool set, plus `discoveryBreakEven(tools)` for the computed flip point.
+- [x] Puts that number — "12 tools cost 443 tokens to discover the lean way
+  vs 1340 naive — 67% saved" — as the headline, reproducible via
+  `node scripts/benchmark.mjs` and pinned by smoke test T38.
 - Keeps every honesty rule the eval enforced: measured not claimed,
   scoped claims, no "can't be wrong," structuredContent so the agent
   reads data not prose.
 
 ## The honest edges (say them)
 
-- Progressive disclosure is a net win at MANY tools; at 1–2 tools the
-  `describe_tool` round-trip can cost more than it saves. Say where the
-  line is.
+- Progressive disclosure is a net win at MANY tools; at 1 tool the
+  `describe_tool` round-trip costs more than it saves (measured: lean 191
+  vs naive 113, a net loss of 78). It breaks even and starts winning at
+  n=2 (lean 217 vs naive 227). Say where the line is — the code computes it.
 - Grounding stops invention; it doesn't make your data correct.
 - We measure token counts (deterministic); we do not claim it makes the
   agent's reasoning better — only that it costs less context, which the

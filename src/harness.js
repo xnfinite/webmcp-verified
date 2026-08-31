@@ -13,7 +13,24 @@
  *   denyMargin — default true; fail if internal pricing leaks to a customer surface
  */
 
-const LEAK = /wholesale|markup|margin|\/h\b|labor rate|profit/i;
+/**
+ * Heuristic tripwire for internal-pricing terms appearing on a customer
+ * surface. IMPORTANT: this is a double-check for developer error, NOT the
+ * security boundary. The real redaction guarantee is the structural surface
+ * split (a customer surface never even receives internal rows — see
+ * src/index.js render()/execute()); avoiding leaks depends on marking rows
+ * `internal`, not on this regex.
+ *
+ * Known limits (stated, not hidden):
+ *  - False-positives it still trips on: legitimate "profit margin"/"profit"
+ *    in honest marketing copy. (Bare `margin` was removed because it hit
+ *    "margin of error", CSS "margin", "safety margin".)
+ *  - Known misses (synonyms/localization it does NOT catch): "cost basis"
+ *    handled below, but also "our cost", "vendor/supplier price", "markdown",
+ *    "unit/landed cost", "MSRP" — a substring net cannot be exhaustive.
+ * Exported so callers can inspect/reuse it; the pattern is a heuristic.
+ */
+export const LEAK = /\bwholesale\b|\bmark-?up\b|\bgross margin\b|\bprofit margin\b|\bmargin\s*[:=]|margin \$|\/\s*h\b|\blabor rate\b|\bcost basis\b|\bCOGS\b|\bprofit\b/i;
 
 async function runOne(tool, j) {
   const issues = [];
@@ -25,6 +42,11 @@ async function runOne(tool, j) {
   try {
     const out = await tool.execute(j.args || {});
     text = (out && out.content && out.content[0] && out.content[0].text) || "";
+    // A readable error result (isError:true) is still a journey failure — the
+    // tool couldn't answer. Kept coupled to the throw→return change in
+    // execute() so the harness keeps detecting errors. The catch below stays
+    // as a backstop for a tool that still throws.
+    if (out && out.isError) issues.push("tool returned an error result: " + text);
   } catch (e) {
     return { tool: j.tool, pass: false, issues: ["threw: " + e.message] };
   }
