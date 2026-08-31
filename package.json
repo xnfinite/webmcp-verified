@@ -1,7 +1,7 @@
 {
   "name": "webmcp-verified",
-  "version": "0.1.0",
-  "description": "Build WebMCP agent tools that cannot hallucinate. Every value an agent gets is derived from a declared source; off-source questions return a fallback, never a guess. Ships a conformance + journey harness.",
+  "version": "0.5.0",
+  "description": "Build agent tools that can't invent values outside your data. Answers derive from a declared source; off-source returns a fallback, never a guess. Token-lean, with an audit receipt. WebMCP/MCP, zero dependencies.",
   "type": "module",
   "main": "./src/index.js",
   "exports": {

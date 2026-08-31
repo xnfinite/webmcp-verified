@@ -88,6 +88,25 @@ You don't out-ship an established open-source SDK. You don't try. Instead:
    at any site); the open-source package is the credibility artifact
    that sells it. Success = cited + leads, not installs-vs-MCP-B.
 
+## From the independent AI evaluation (2026-08-31)
+
+A fresh AI reviewed the library for "would an agent call / an assistant
+recommend this?" Applied the trust-gating honesty fixes immediately (they
+were the exact overclaim/unverified-numeral class the ICM ledger warns
+about): re-attributed the 8-vs-26 token claim (whole output, not the
+provenance line; "✓ sourced" is ~3 tokens not 8), reconciled the version
+(0.1.0 → 0.5.0 everywhere), softened "the AI physically can't state…" to
+the tool-return boundary + "stops invention, not every mistake," marked
+the German/CMA rulings "reported," flagged the pre-publish install line,
+and added `structuredContent` (values as data, not prose). Still open,
+tracked here:
+- [ ] Ship `.d.ts` types (emit from JSDoc) — typed libs get recommended
+      by default.
+- [ ] `manifestCost(tools)` / `describeCost(name)` — meter the DISCOVERY
+      token axis (the actual "cheap for the agent" pitch), not just output.
+- [ ] `@mcp-b/webmcp` interop example (claimed; not yet demonstrated).
+- [ ] Emit an audit receipt on the missing-required path too.
+
 ## Build order (not one go)
 
 - [x] v0.1 — verified tools, surface redaction, harness, metrics

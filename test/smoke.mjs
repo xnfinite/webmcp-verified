@@ -118,5 +118,16 @@ const r = audit.all().pop();
 ok(audit.verify(r, known2), "a receipt verifies against the exact answer it recorded");
 ok(!audit.verify(r, known2 + " tampered"), "a tampered answer fails receipt verification");
 
+// --- structured output for agents (v0.5) ---
+
+// 17. every call returns structuredContent (data), not just prose to re-parse
+const sc = defineTool({ ...base, name: "sc" });
+const scOut = await sc.execute({ item: "a" });
+ok(scOut.structuredContent && scOut.structuredContent.sourced === true && scOut.structuredContent.values.Price === 20,
+  "grounded call returns structuredContent with values as data");
+const scFall = await sc.execute({ item: "zzz" });
+ok(scFall.structuredContent && scFall.structuredContent.sourced === false,
+  "fallback call marks structuredContent.sourced = false");
+
 console.log(failures === 0 ? "\nALL SMOKE TESTS PASSED" : `\n${failures} FAILURE(S)`);
 process.exit(failures ? 1 : 0);

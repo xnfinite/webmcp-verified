@@ -1,11 +1,11 @@
 # Evidence — auto-generated
 
-_Regenerated 2026-08-31 19:22 UTC by `node scripts/evidence.mjs`. Reproducible: clone,
+_Regenerated 2026-08-31 19:32 UTC by `node scripts/evidence.mjs`. Reproducible: clone,
 run the command, get this file. Nothing here is asserted by hand._
 
 ## Guarantees, tested live
 
-- **Smoke tests:** ALL PASS — 23 passed.
+- **Smoke tests:** ALL PASS — 25 passed.
   Covers: values derive from source, off-source returns a fallback (no
   invented number), customer/internal surface split, injected/unknown
   args dropped before resolve, out-of-enum rejected, read-only default,
@@ -19,8 +19,8 @@ run the command, get this file. Nothing here is asserted by hand._
     "grounded": 2,
     "fallback": 1,
     "error": 0,
-    "avgMs": 5.1,
-    "maxMs": 15,
+    "avgMs": 5.4,
+    "maxMs": 15.5,
     "totalTokens": 158,
     "avgTokens": 53
   }
@@ -55,6 +55,8 @@ PASS receipt carries result+source fingerprint and timestamp
 PASS fingerprint is deterministic and content-sensitive
 PASS a receipt verifies against the exact answer it recorded
 PASS a tampered answer fails receipt verification
+PASS grounded call returns structuredContent with values as data
+PASS fallback call marks structuredContent.sourced = false
 
 ALL SMOKE TESTS PASSED
 ```

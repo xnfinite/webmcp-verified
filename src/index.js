@@ -179,7 +179,11 @@ export function defineTool(def) {
         metrics.record(def.name, outcome, metrics.now() - t0, estimateTokens(text));
         if (auditSink) auditSink({ at: clock(), tool: def.name, outcome, surface, sourceName,
           argKeys: Object.keys(clean), resultHash: fingerprint(text), sourceHash: fingerprint(typeof data === "string" ? data : JSON.stringify(data)) });
-        return { content: [{ type: "text", text }] };
+        // structuredContent: give the agent the values as DATA, not prose to
+        // re-parse. The text stays human-readable; the agent reads this.
+        return { content: [{ type: "text", text }],
+          structuredContent: { sourced: outcome === "grounded", outcome,
+            values: Object.fromEntries((shown.lines || []).map(([k, v]) => [k, v])) } };
       } catch (e) { metrics.record(def.name, "error", metrics.now() - t0, 0); throw e; }
     },
     _metrics: metrics
@@ -220,4 +224,4 @@ export function mount(host, tools, opts = {}) {
   return { count: tools.length, metrics: tools[0] && tools[0]._metrics, unregister() { for (const h of handles) if (h && h.unregister) h.unregister(); } };
 }
 
-export const version = "0.4.0";
+export const version = "0.5.0";
