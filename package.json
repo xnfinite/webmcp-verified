@@ -9,7 +9,7 @@
     ".": "./src/index.js",
     "./harness": "./src/harness.js"
   },
-  "files": ["src", "examples", "scripts", "test", "EVIDENCE.md", "ROADMAP.md", "README.md", "LICENSE"],
+  "files": ["src", "examples", "scripts", "test", "EVIDENCE.md", "ROADMAP.md", "README.md", "EXPLAINER.md", "LICENSE"],
   "scripts": {
     "test": "node test/smoke.mjs",
     "example": "node examples/auto-shop.mjs",

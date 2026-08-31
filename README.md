@@ -2,6 +2,8 @@
 
 **Turn your data into agent tools that ground answers in your data, cost fewer tokens to call, and keep a receipt of every answer.**
 
+> **New to all this?** [`EXPLAINER.md`](EXPLAINER.md) walks through the whole project from scratch in plain English — no jargon, readable in one sitting.
+
 Two readers matter here, and this is built for both:
 
 - **The developer** who ships the tool gets answers they can defend — the tool can't *return* a value that isn't in your data, so the number the agent relays came from your source, not the model. (A derived value can still be wrong if your data or `resolve` is wrong — this stops *invention*, not every mistake.)
