@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>webmcp-verified — live demo</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111820; --panel2:#0e141b; --line:#1e2a36;
+    --tx:#e6edf3; --mut:#8b98a5; --dim:#5b6b7a;
+    --grn:#3fb950; --grn-bg:#0f2417; --amb:#e3b341; --amb-bg:#241d0d;
+    --red:#f85149; --red-bg:#2a1315; --acc:#58a6ff;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.55;
+    -webkit-font-smoothing:antialiased;font-size:16px}
+  .wrap{max-width:860px;margin:0 auto;padding:40px 20px 80px}
+  a{color:var(--acc);text-decoration:none} a:hover{text-decoration:underline}
+  h1{font-size:30px;line-height:1.2;margin:0 0 10px;letter-spacing:-.02em}
+  h2{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--mut);margin:0 0 6px}
+  .live{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--grn);
+    font-family:var(--mono);border:1px solid var(--line);background:var(--panel);
+    padding:5px 11px;border-radius:999px;margin-bottom:22px}
+  .live .dot{width:7px;height:7px;border-radius:50%;background:var(--grn);box-shadow:0 0 0 0 var(--grn);
+    animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(63,185,80,.5)}70%{box-shadow:0 0 0 7px rgba(63,185,80,0)}100%{box-shadow:0 0 0 0 rgba(63,185,80,0)}}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:22px;margin:18px 0}
+  .kicker{font-family:var(--mono);font-size:12px;color:var(--dim);text-transform:uppercase;
+    letter-spacing:.08em;margin-bottom:10px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+  button.chip{font-family:var(--sans);font-size:13.5px;color:var(--tx);background:var(--panel2);
+    border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer;transition:.12s}
+  button.chip:hover{border-color:var(--acc);color:#fff}
+  button.chip.bad{border-style:dashed}
+  .row{display:flex;gap:8px;margin-top:4px}
+  input[type=text]{flex:1;font-family:var(--sans);font-size:14.5px;color:var(--tx);
+    background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  input[type=text]:focus{outline:none;border-color:var(--acc)}
+  button.go{font-family:var(--sans);font-size:14px;color:#04121a;background:var(--acc);
+    border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-weight:600}
+  .answer{margin-top:16px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    overflow:hidden}
+  .answer .head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);
+    font-family:var(--mono);font-size:12.5px;color:var(--mut)}
+  .badge{font-family:var(--mono);font-size:11.5px;padding:3px 9px;border-radius:999px;font-weight:600}
+  .badge.grn{color:var(--grn);background:var(--grn-bg);border:1px solid #16351f}
+  .badge.amb{color:var(--amb);background:var(--amb-bg);border:1px solid #3a2f0f}
+  .badge.red{color:var(--red);background:var(--red-bg);border:1px solid #40191b}
+  .answer pre{margin:0;padding:14px;font-family:var(--mono);font-size:13.5px;color:var(--tx);
+    white-space:pre-wrap;word-break:break-word}
+  .prov{color:var(--grn)} .fallback{color:var(--amb)}
+  .ungrounded{margin-top:12px;border:1px dashed #40191b;background:var(--red-bg);border-radius:10px;padding:12px 14px}
+  .ungrounded .lbl{font-family:var(--mono);font-size:11px;color:var(--red);text-transform:uppercase;letter-spacing:.06em}
+  .ungrounded .say{font-family:var(--mono);font-size:14px;color:#ffb4ae;margin-top:4px}
+  .ungrounded .note{color:var(--mut);font-size:12.5px;margin-top:6px}
+  /* discovery */
+  .slider{width:100%;margin:8px 0 4px;accent-color:var(--acc)}
+  .nlabel{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:var(--mut)}
+  .bars{margin-top:14px;display:grid;gap:10px}
+  .bar{display:grid;grid-template-columns:120px 1fr 84px;align-items:center;gap:10px;font-family:var(--mono);font-size:12.5px}
+  .bar .track{height:20px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .bar .fill{height:100%;border-radius:5px 0 0 5px;transition:width .18s}
+  .fill.naive{background:linear-gradient(90deg,#3a2530,#f85149)}
+  .fill.lean{background:linear-gradient(90deg,#123a2a,#3fb950)}
+  .bar .val{text-align:right;color:var(--tx)}
+  .verdict{margin-top:14px;font-family:var(--mono);font-size:13px;padding:10px 12px;border-radius:8px}
+  .verdict.win{color:var(--grn);background:var(--grn-bg);border:1px solid #16351f}
+  .verdict.lose{color:var(--amb);background:var(--amb-bg);border:1px solid #3a2f0f}
+  /* receipt */
+  .receipt{margin-top:14px;font-family:var(--mono);font-size:12.5px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:10px;padding:14px;color:var(--mut);white-space:pre-wrap}
+  .receipt b{color:var(--tx);font-weight:600}
+  .vrow{display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap}
+  .vstatus{font-family:var(--mono);font-size:12.5px}
+  .muted{color:var(--mut)} .small{font-size:13px}
+  ul.honest{margin:8px 0 0;padding-left:18px;color:var(--mut);font-size:13.5px}
+  ul.honest li{margin:5px 0}
+  footer{margin-top:26px;color:var(--dim);font-size:13px;text-align:center;line-height:1.7}
+  code{font-family:var(--mono);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:.9em}
+  @media(max-width:560px){.bar{grid-template-columns:78px 1fr 66px}.wrap{padding:28px 14px 60px}h1{font-size:24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="live"><span class="dot"></span> running the real library in your browser — nothing here is faked</div>
+  <h1>webmcp-verified</h1>
+  <p class="sub">Agent tools that answer only from your data, cost fewer tokens to discover, and keep a receipt. Everything below runs the actual npm package client-side — no server, no mock.</p>
+
+  <!-- 1. GROUNDED -->
+  <section>
+    <div class="kicker">1 · grounded, not invented</div>
+    <h2>Ask the shop's quoting tool something</h2>
+    <p class="sub small">It answers from a declared rate card. Ask for something that isn't on it and it returns a diagnostic — it will not make up a price.</p>
+    <div class="chips" id="onCard"></div>
+    <div class="chips" id="offCard"></div>
+    <div class="row">
+      <input id="q" type="text" placeholder="e.g. Honda Civic, brakes grinding" />
+      <button class="go" id="ask">Ask</button>
+    </div>
+    <div id="answer"></div>
+    <div id="ungrounded"></div>
+  </section>
+
+  <!-- 2. DISCOVERY -->
+  <section>
+    <div class="kicker">2 · cheaper to discover</div>
+    <h2>The token cost of choosing a tool</h2>
+    <p class="sub small">An agent reads every tool's full schema just to pick one. This ships a one-line menu instead and pulls the full schema only for the tool it uses. Drag to change how many tools your agent has:</p>
+    <div class="nlabel"><span>1 tool</span><span id="ncur">12 tools</span><span>12 tools</span></div>
+    <input class="slider" id="nslider" type="range" min="1" max="12" value="12" />
+    <div class="bars" id="bars"></div>
+    <div id="verdict"></div>
+  </section>
+
+  <!-- 3. RECEIPT -->
+  <section>
+    <div class="kicker">3 · a receipt for every answer</div>
+    <h2>Prove what it said</h2>
+    <p class="sub small">Every answer emits a tamper-evident receipt — a fingerprint of exactly what was returned, from which source. Ask a quote above, then check or tamper with it here.</p>
+    <div id="receipt" class="muted small" style="font-family:var(--mono)">Ask a quote in section 1 first, then a receipt shows up here.</div>
+    <div class="vrow" id="vrow" style="display:none">
+      <button class="chip" id="verify">Verify the receipt</button>
+      <button class="chip bad" id="tamper">Tamper with the answer</button>
+      <span class="vstatus" id="vstatus"></span>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">honest scope</div>
+    <ul class="honest">
+      <li>The token counts use a ~4-char/token gauge, so absolute numbers are approximate — the <b>%</b> and the break-even are the robust figures.</li>
+      <li>Lean discovery <b>loses under 2 tools</b> (the describe round-trip costs more than it saves). It's a many-tools win, not magic.</li>
+      <li>Grounding stops the tool inventing a value off your source. It can't make your source data correct — that's still on you.</li>
+      <li>The fingerprint is tamper-<i>evidence</i>, not a cryptographic signature.</li>
+    </ul>
+  </section>
+
+  <footer>
+    dependency-free · MIT · <a href="https://github.com/xnfinite/webmcp-verified" target="_blank" rel="noopener">github.com/xnfinite/webmcp-verified</a><br>
+    this page imports <code>src/index.js</code> directly — the demo is the test.
+  </footer>
+</div>
+
+<script type="module">
+import { defineTool, AuditLog, discoveryBreakEven } from "../src/index.js";
+import { buildSurface } from "../scripts/_surface.mjs";
+
+/* ---- the shop's quoting tool (the worked example, dogfooded) ---- */
+const RATE_CARD = {
+  laborRate:135, markupPct:0.35, taxRate:0.0725, validDays:14,
+  services:{
+    brakes_front:{label:"Front brake pads & rotors",wholesale:190,hours:1.8,kw:["brake","grind","squeak","rotor","pad"]},
+    battery:{label:"Battery replacement",wholesale:150,hours:0.5,kw:["battery","won't start","dead","click"]},
+    tires:{label:"Tires — set of four",wholesale:420,hours:1.2,kw:["tire","tread","flat"]},
+    diag:{label:"Diagnostic inspection",wholesale:0,hours:1.0,kw:[]}
+  }
+};
+const match=(issue,card)=>{const low=(issue||"").toLowerCase();let best=null,score=0;
+  for(const[k,s]of Object.entries(card.services)){const sc=s.kw.reduce((a,w)=>a+(low.includes(w)?w.length:0),0);if(sc>score){score=sc;best=k;}}return best;};
+const price=(s,c)=>{const parts=+(s.wholesale*(1+c.markupPct)).toFixed(2),labor=+(s.hours*c.laborRate).toFixed(2),tax=+((parts)*c.taxRate).toFixed(2);
+  return{parts,labor,tax,total:+(parts+labor+tax).toFixed(2)};};
+
+const audit = new AuditLog();
+const getQuote = defineTool({
+  name:"get_quote",
+  description:"Get an itemized repair quote. Jobs not on the rate card return a diagnostic, never a guessed price.",
+  inputSchema:{type:"object",properties:{make:{type:"string"},issue:{type:"string"}},required:["make","issue"]},
+  source:()=>RATE_CARD, sourceName:"the shop's rate card", surface:"customer", audit,
+  resolve(a,card){const k=match(a.issue,card);if(!k||k==="diag")return null;const s=card.services[k],p=price(s,card);
+    return{summary:`${a.make} — ${s.label}`,lines:[["Parts",p.parts],["Labor",p.labor],["Tax",p.tax],["Total",p.total],["Honored",card.validDays+" days"]]};},
+  onUnknown(a){return{summary:`${a.make} — not on the rate card`,lines:[["Recommended","Diagnostic inspection (credited toward the repair)"]]};}
+});
+
+/* ---- section 1: grounded ---- */
+const onCard=[["Front brakes","VW, front brakes grinding"],["Battery","Toyota, won't start, clicking"],["Tires","Ford, flat tire, low tread"]];
+const offCard=[["Sunroof leak (off-card)","Honda, sunroof leaking"],["Engine swap (off-card)","BMW, full engine swap"]];
+const elOn=document.getElementById("onCard"), elOff=document.getElementById("offCard");
+onCard.forEach(([lbl,q])=>elOn.appendChild(chip(lbl,q,false)));
+offCard.forEach(([lbl,q])=>elOff.appendChild(chip(lbl,q,true)));
+function chip(lbl,q,bad){const b=document.createElement("button");b.className="chip"+(bad?" bad":"");b.textContent=lbl;b.onclick=()=>{document.getElementById("q").value=q;runAsk(q);};return b;}
+document.getElementById("ask").onclick=()=>runAsk(document.getElementById("q").value);
+document.getElementById("q").addEventListener("keydown",e=>{if(e.key==="Enter")runAsk(e.target.value);});
+
+let lastAnswerText="", lastReceipt=null, tampered=false;
+
+async function runAsk(raw){
+  const val=(raw||"").trim(); if(!val)return;
+  const make=(val.split(",")[0]||"vehicle").trim();
+  const issue=val.split(",").slice(1).join(",").trim()||val;
+  const out=await getQuote.execute({make,issue});
+  const text=out.content[0].text;
+  const sourced=out.structuredContent && out.structuredContent.sourced;
+  lastAnswerText=text; tampered=false;
+  // render answer
+  const a=document.getElementById("answer");
+  const badge = sourced
+    ? `<span class="badge grn">✓ sourced</span>`
+    : `<span class="badge amb">↩ fallback · no price invented</span>`;
+  a.innerHTML=`<div class="answer"><div class="head">get_quote → <span style="color:var(--tx)">${escapeH(make)}</span> ${badge}</div><pre>${colorText(text)}</pre></div>`;
+  // ungrounded illustration
+  const u=document.getElementById("ungrounded");
+  if(sourced){ u.innerHTML=""; }
+  else {
+    const fake="$"+ (280 + (hash(issue)%620)).toFixed(0);
+    u.innerHTML=`<div class="ungrounded"><div class="lbl">what an ungrounded chatbot tends to do</div>
+      <div class="say">"Sure — that'll run about ${fake}."</div>
+      <div class="note">Illustration, not this tool's output. A plain LLM would confidently produce a number that was never on the rate card. The tool above refused instead.</div></div>`;
+  }
+  showReceipt();
+}
+
+function colorText(t){
+  return escapeH(t).split("\n").map(line=>{
+    if(/^Derived from|✓ sourced/.test(line)) return `<span class="prov">${line}</span>`;
+    if(/^Outside |fallback/i.test(line)) return `<span class="fallback">${line}</span>`;
+    return line;
+  }).join("\n");
+}
+
+/* ---- section 3: receipt ---- */
+function showReceipt(){
+  const recs=audit.all(); if(!recs.length)return;
+  lastReceipt=recs[recs.length-1];
+  const r=lastReceipt;
+  document.getElementById("receipt").innerHTML=
+    `<b>tool</b>      ${r.tool}\n<b>outcome</b>   ${r.outcome}\n<b>source</b>    ${r.sourceName}\n<b>argKeys</b>   [${r.argKeys.join(", ")}]\n<b>resultHash</b> ${r.resultHash}\n<b>sourceHash</b> ${r.sourceHash||"(none — source not consulted)"}\n<b>at</b>        ${new Date(r.at).toISOString()}`;
+  document.getElementById("vrow").style.display="flex";
+  document.getElementById("vstatus").textContent="";
+}
+document.getElementById("verify").onclick=()=>{
+  if(!lastReceipt)return;
+  const ans=tampered? lastAnswerText+" (edited)": lastAnswerText;
+  const ok=audit.verify(lastReceipt,ans);
+  const s=document.getElementById("vstatus");
+  s.innerHTML= ok
+    ? `<span class="badge grn">✓ matches — answer is intact</span>`
+    : `<span class="badge red">✗ mismatch — the answer was changed</span>`;
+};
+document.getElementById("tamper").onclick=(e)=>{
+  tampered=!tampered;
+  e.target.textContent= tampered? "Un-tamper" : "Tamper with the answer";
+  document.getElementById("vstatus").innerHTML= tampered
+    ? `<span class="muted small">answer now edited — hit “Verify” and watch it fail</span>`
+    : "";
+};
+
+/* ---- section 2: discovery ---- */
+const be = discoveryBreakEven(buildSurface());
+const maxNaive = be.perN[be.perN.length-1].naive || 1;
+const slider=document.getElementById("nslider");
+slider.oninput=()=>renderDisc(+slider.value);
+function renderDisc(n){
+  const row=be.perN[n-1];
+  document.getElementById("ncur").textContent=n+(n===1?" tool":" tools");
+  const w=v=>Math.max(2,Math.round(v/maxNaive*100));
+  document.getElementById("bars").innerHTML=
+    `<div class="bar"><span class="muted">naive</span><div class="track"><div class="fill naive" style="width:${w(row.naive)}%"></div></div><span class="val">${row.naive} tok</span></div>
+     <div class="bar"><span class="muted">lean</span><div class="track"><div class="fill lean" style="width:${w(row.lean)}%"></div></div><span class="val">${row.lean} tok</span></div>`;
+  const v=document.getElementById("verdict");
+  if(row.leanWins){const pct=Math.round(row.saved/row.naive*100);
+    v.className="verdict win"; v.textContent=`lean saves ${row.saved} tokens (${pct}%) at ${n} tools`;}
+  else{v.className="verdict lose"; v.textContent=`at ${n} tool the round-trip costs ${-row.saved} more — lean doesn't pay off yet (it wins from 2 up)`;}
+}
+renderDisc(12);
+
+/* ---- utils ---- */
+function escapeH(s){return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+function hash(s){let h=0;for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))>>>0;}return h;}
+</script>
+</body>
+</html>
