@@ -2,6 +2,8 @@
 
 **Turn your data into agent tools that ground answers in your data, cost fewer tokens to call, and keep a receipt of every answer.**
 
+> **▶ [Try the live demo](https://xnfinite.github.io/webmcp-verified/demo/)** — watch a tool refuse to invent a price, drag the token curve, tamper with a receipt. The whole page runs the real library in your browser.
+>
 > **New to all this?** [`EXPLAINER.md`](EXPLAINER.md) walks through the whole project from scratch in plain English — no jargon, readable in one sitting.
 
 Two readers matter here, and this is built for both:
