@@ -9,13 +9,26 @@
     ".": "./src/index.js",
     "./harness": "./src/harness.js"
   },
-  "files": ["src", "examples", "scripts", "test", "EVIDENCE.md", "ROADMAP.md", "README.md", "EXPLAINER.md", "LICENSE"],
+  "files": [
+    "src",
+    "examples",
+    "scripts",
+    "test",
+    "EVIDENCE.md",
+    "ROADMAP.md",
+    "README.md",
+    "EXPLAINER.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node test/smoke.mjs",
     "example": "node examples/auto-shop.mjs",
     "evidence": "node scripts/evidence.mjs",
     "discovery": "node scripts/discovery.mjs",
-    "overlap": "node scripts/overlap.mjs"
+    "overlap": "node scripts/overlap.mjs",
+    "tokenizer": "node scripts/tokenizer-check.mjs",
+    "used-curve": "node scripts/used-curve.mjs",
+    "real-mcp": "node scripts/real-mcp.mjs"
   },
   "keywords": [
     "webmcp",
@@ -37,7 +50,15 @@
   ],
   "license": "MIT",
   "author": "Nightflow Systems",
-  "repository": { "type": "git", "url": "https://github.com/xnfinite/webmcp-verified" },
-  "engines": { "node": ">=18" },
-  "sideEffects": false
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xnfinite/webmcp-verified"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "devDependencies": {
+    "gpt-tokenizer": "^4.0.0"
+  }
 }
