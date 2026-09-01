@@ -351,6 +351,39 @@ export function discoveryBreakEven(tools, opts = {}) {
   return { n: firstWin, saved, perN };
 }
 
+/**
+ * A canonical string for a tool's INPUT SHAPE (sorted prop:type pairs + sorted
+ * required). Two tools with the same signature are indistinguishable by their
+ * arguments at call time — no description prose can tell them apart.
+ */
+export function schemaSignature(tool) {
+  const s = (tool && tool.inputSchema) || {};
+  const props = s.properties || {};
+  const shape = Object.keys(props).sort().map((k) => `${k}:${(props[k] && props[k].type) || "any"}`).join(",");
+  const req = (s.required || []).slice().sort().join(",");
+  return `{${shape}}!${req}`;
+}
+
+/**
+ * Surface analysis: which tools an agent CAN'T tell apart. As a tool surface
+ * grows, mis-selection is driven by OVERLAP, not count — two tools sharing an
+ * input-schema shape are indistinguishable at call time whatever their prose
+ * says. Returns the groups of 2+ tools with an identical schema signature, so
+ * you can merge or differentiate them before an agent has to guess. This is a
+ * design check; it is separate from discoveryCost (which meters tokens, not
+ * disambiguation). A describe_tool in the set is ignored.
+ * @returns {Array<{signature:string, tools:string[]}>} empty when all distinct
+ */
+export function schemaCollisions(tools) {
+  const by = new Map();
+  for (const t of (tools || []).filter((t) => t && t.name !== "describe_tool")) {
+    const sig = schemaSignature(t);
+    if (!by.has(sig)) by.set(sig, []);
+    by.get(sig).push(t.name);
+  }
+  return [...by.entries()].filter(([, names]) => names.length > 1).map(([signature, names]) => ({ signature, tools: names }));
+}
+
 /** Register tools with a WebMCP host (document.modelContext) or any registerTool host. */
 export function mount(host, tools, opts = {}) {
   assert(host && typeof host.registerTool === "function", "mount: host must expose registerTool");

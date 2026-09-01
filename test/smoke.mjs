@@ -3,7 +3,7 @@
  * Verifies: grounded answers, no-guess fallback, surface split, metrics
  * (incl. token cost), and the progressive-disclosure manifest/describe.
  */
-import { defineTool, mount, Metrics, manifest, describeTool, describeText, discoveryCost, discoveryBreakEven, estimateTokens, AuditLog, fingerprint } from "../src/index.js";
+import { defineTool, mount, Metrics, manifest, describeTool, describeText, discoveryCost, discoveryBreakEven, estimateTokens, AuditLog, fingerprint, schemaCollisions } from "../src/index.js";
 import { runJourneys, LEAK } from "../src/harness.js";
 import * as INDEX_NS from "../src/index.js";
 import * as HARNESS_NS from "../src/harness.js";
@@ -311,6 +311,20 @@ try { exOut = execFileSync(process.execPath, [join(ROOT, "examples", "mcp-b-inte
 catch (e) { exOut = String((e && e.stdout) || "") + String((e && e.message) || ""); }
 ok(exRan && /\$2,448\.00/.test(exOut) && /Talk to sales|fallback|not a guessed value/i.test(exOut) && /Input:\s*\{/.test(exOut) && /grounded/.test(exOut),
   "T36 examples/mcp-b-interop.mjs runs via node and grounds a real value through the host");
+
+// --- overlap: which tools an agent can't tell apart (schemaCollisions) ---
+
+// T39 — the real driver of mis-selection as a surface grows is OVERLAP, not
+// count. schemaCollisions flags tools that share an input-schema shape (an
+// agent can't disambiguate them) and leaves distinct ones alone.
+const ov1 = defineTool({ name: "ov1", description: "One tool that takes a single query string argument.", inputSchema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] }, source: () => 1, resolve: () => ({ lines: [] }) });
+const ov2 = defineTool({ name: "ov2", description: "Another tool with the exact same single query string shape.", inputSchema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] }, source: () => 1, resolve: () => ({ lines: [] }) });
+const ovD = defineTool({ name: "ovD", description: "A tool with a genuinely different numeric input shape.", inputSchema: { type: "object", properties: { n: { type: "number" } }, required: ["n"] }, source: () => 1, resolve: () => ({ lines: [] }) });
+const collide = schemaCollisions([ov1, ov2, ovD]);
+ok(collide.length === 1 && collide[0].tools.length === 2 && collide[0].tools.includes("ov1") && collide[0].tools.includes("ov2"),
+  "T39 schemaCollisions flags the two identical-schema tools, not the distinct one");
+ok(schemaCollisions([ov1, ovD]).length === 0,
+  "T39 no collision reported when every schema is distinct");
 
 // --- TypeScript declarations track the real exports (v0.6) ---
 

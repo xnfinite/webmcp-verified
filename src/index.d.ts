@@ -409,6 +409,31 @@ export function discoveryBreakEven(
 ): BreakEvenReport;
 
 // ---------------------------------------------------------------------------
+// Surface analysis — which tools an agent can't tell apart
+// ---------------------------------------------------------------------------
+
+/**
+ * A canonical string for a tool's input shape (sorted prop:type + required).
+ * Two tools with the same signature are indistinguishable by their arguments
+ * at call time, whatever their descriptions say.
+ */
+export function schemaSignature(tool: { inputSchema?: JSONSchema }): string;
+
+/** A group of 2+ tools sharing an identical input-schema signature. */
+export interface SchemaCollision {
+  signature: string;
+  tools: string[];
+}
+
+/**
+ * Which tools an agent CAN'T tell apart: groups of 2+ tools with an identical
+ * input-schema shape. As a surface grows, mis-selection is driven by overlap,
+ * not count. A design check, separate from discoveryCost (tokens, not
+ * disambiguation). Empty when every schema is distinct.
+ */
+export function schemaCollisions(tools: ReadonlyArray<ToolLike>): SchemaCollision[];
+
+// ---------------------------------------------------------------------------
 // Mounting on a host
 // ---------------------------------------------------------------------------
 

@@ -14,7 +14,8 @@
     "test": "node test/smoke.mjs",
     "example": "node examples/auto-shop.mjs",
     "evidence": "node scripts/evidence.mjs",
-    "discovery": "node scripts/discovery.mjs"
+    "discovery": "node scripts/discovery.mjs",
+    "overlap": "node scripts/overlap.mjs"
   },
   "keywords": [
     "webmcp",
