@@ -30,15 +30,18 @@ directional and re-check dates — the space moves monthly.
 
 ## Where we win (the layer they don't own)
 
-1. **Verification / can't-hallucinate / provenance.** When an agent quotes a
+1. **Verification / grounding / provenance.** When an agent quotes a
    real price to a real customer, "the model made it up" is a liability, not a
-   bug. Nobody in the SDK layer guarantees source-derived answers. We do, by
-   construction. This is the icm-verifier discipline as code.
+   bug. General SDKs register tools; they don't guarantee source-derived
+   answers. This layer does, by construction. This is the icm-verifier discipline as code.
 2. **Token efficiency (ICM progressive disclosure).** Agents pay per tool
    description (discovery) and per result. The headline is the DISCOVERY axis,
-   now measured: a 12-tool surface costs 443 lean tokens vs 1340 naive to
-   discover a tool — 67% fewer, break-even n=2 (`node scripts/benchmark.mjs`,
-   pinned by smoke test T38). Plus compact provenance (measured 8 vs 26 tokens
+   now measured on a REAL surface: 14 tools from 5 official MCP servers cost
+   536 lean tokens vs 1217 naive to discover a tool — 56% fewer, break-even n=3
+   (`npm run real-mcp`). The illustrative 12-tool surface is 443 vs 1340, 67%,
+   break-even n=2 (`npm run discovery`, pinned by smoke test T38); a real BPE
+   tokenizer gives 66% vs the gauge's 67% (`npm run tokenizer`). This is a COST
+   axis only — it does not make an agent pick better (see the README correction). Plus compact provenance (measured 8 vs 26 tokens
    whole output; the provenance line itself ~3 vs ~20) and per-call token
    metering. A real cost lever the general SDKs don't frame around.
 3. **Protocol-agnostic trust layer.** The `source`/`resolve`/`surface`
@@ -108,7 +111,7 @@ tracked here:
 - [x] Ship `.d.ts` types (emit from JSDoc) — typed libs get recommended
       by default. **Delivered** — `src/index.d.ts` + `src/harness.d.ts` ship,
       the `types` field resolves to them, and smoke tests TD1–TD3 assert the
-      declared exports don't drift from the runtime (12 index + 3 harness).
+      declared exports don't drift from the runtime (15 index + 3 harness).
 - [x] `manifestCost(tools)` / `describeCost(name)` — meter the DISCOVERY
       token axis (the actual "cheap for the agent" pitch), not just output.
       **Delivered v0.6** as `discoveryCost(tools)` (lean vs naive, saved,
@@ -126,6 +129,12 @@ tracked here:
       v0.6** — the missing-required and error paths now meter tokens, emit a
       receipt (sourceHash null: source not consulted), and return
       `structuredContent`; errors return `isError:true`, not a thrown crash.
+- [x] Surface-design checks, from r/mcp practitioner feedback (2026-09-01):
+      `schemaCollisions` (a fact — tools identical at call time) and
+      `variationCandidates` (a heuristic — tools that look like one tool plus a
+      parameter). False-positive control pinned by smoke test T40: 0 families on
+      the 14 real MCP tools. The same feedback produced the README correction
+      that the lean manifest is a cost lever, not an accuracy fix.
 
 ## Build order (not one go)
 
@@ -138,8 +147,8 @@ tracked here:
 - [x] v0.3 — a README/interop note + example showing use alongside
       `@mcp-b/webmcp` (complement, don't compete) — shipped as
       `examples/mcp-b-interop.mjs` + the README "Where it fits" note.
-- [ ] pre-publish — confirm npm name is free; if taken, scope it
-      (`@xnfinite/…`); a real flagged-Chrome end-to-end run (closes L-022)
+- [x] pre-publish — npm name `webmcp-verified` confirmed free (registry 404s)
+- [ ] a real flagged-Chrome end-to-end run (closes L-022)
 - [ ] publish (owner: `npm login && npm publish`; then GitHub for discovery)
 
 ## The one honest gate

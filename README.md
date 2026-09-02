@@ -28,19 +28,19 @@ agent pick the right tool.** An earlier version of this README blurred those two
 things. This section is the correction, and it is here rather than in a footnote
 because it is the thing most likely to be misread.
 
-Two practitioners made the point on r/mcp, and they are right:
+Two practitioners made the point [on r/mcp](https://www.reddit.com/r/mcp/comments/1w4o1xg/past_10_mcp_tools_the_agent_started_picking_worse/), and they are right:
 
 > "the menu only makes reading cheaper. the pick still happens on blurry input. i
 > cut the surface to 4 tools and the wrong pick rate mostly vanished. overlapping
 > schemas usually mean two tools should be one"
-> — **Plastic-Risk-6309**
+> — a practitioner on r/mcp
 
 > "Cutting the surface fixes disambiguation better than any menu trick, because
 > two tools with blurry boundaries stay blurry once the schema finally loads…
 > Anything that was a variation on the same question became a parameter instead
 > of a new tool… The number worth watching isn't twelve. It's how many of those
 > twelve answer questions a human would phrase the same way."
-> — **Appbot_official**, who runs a production MCP review server
+> — a second practitioner there, who runs a production MCP review server
 
 Their own caveat, kept because it matters: they build that server, so their
 three-tool surface is a biased data point, not a rule — twelve genuinely distinct

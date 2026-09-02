@@ -1,9 +1,10 @@
 /**
  * evidence.mjs — regenerate EVIDENCE.md from a live test run.
  *
- * Runs the smoke tests and the worked example, captures the real results
- * and token metrics, and writes a dated, reproducible EVIDENCE.md at the
- * repo root. This is proof anyone can re-run: `node scripts/evidence.mjs`.
+ * Runs the smoke tests, the worked example, and both discovery benchmarks
+ * (illustrative 12-tool surface + 14 real MCP-server tools), captures the
+ * real results and token metrics, and writes a dated, reproducible
+ * EVIDENCE.md at the repo root. Proof anyone can re-run: `node scripts/evidence.mjs`.
  *
  * It writes and commits LOCALLY only. Pushing to a public repo is a human
  * step on purpose (see the note it writes into EVIDENCE.md) — unattended
@@ -21,6 +22,7 @@ const run = (cmd) => { try { return { ok: true, out: execSync(cmd, { cwd: root, 
 const smoke = run("node test/smoke.mjs");
 const example = run("node examples/auto-shop.mjs");
 const benchmark = run("node scripts/benchmark.mjs");
+const realMcp = run("node scripts/real-mcp.mjs");
 
 const passLines = (smoke.out.match(/^PASS /gm) || []).length;
 const failLines = (smoke.out.match(/^FAIL /gm) || []).length;
@@ -28,6 +30,10 @@ const allPass = /ALL SMOKE TESTS PASSED/.test(smoke.out);
 const metrics = (example.out.match(/"get_quote":\s*\{[^}]*\}/) || ["(not captured)"])[0];
 // The measured DISCOVERY headline line, verbatim from the benchmark (not hand-typed).
 const discoveryHeadline = ((benchmark.out.match(/^\d+ tools cost .*$/m) || ["(not captured)"])[0]).trim();
+// The REAL-surface figures, pulled from scripts/real-mcp.mjs output (14 tools, 5 official servers).
+const rm = (re) => { const m = realMcp.out.match(re); return m ? m[1] : "?"; };
+const realNaive = rm(/naive:?\s*(\d+)/i), realLean = rm(/lean:?\s*(\d+)/i);
+const realPct = rm(/\((\d+)%\)/), realBreakEven = rm(/break-even\s*n\s*=\s*(\d+)/i);
 const stamp = new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
 
 const md = `# Evidence — auto-generated
@@ -65,6 +71,16 @@ ${metrics}
   counts tokens, not reasoning quality. The exact numbers are pinned by smoke
   test T38, so this line cannot silently drift from the code.
 
+- **Real MCP surface (the number to quote):** ${realMcp.ok ? "measured" : "ERROR"} by
+  \`npm run real-mcp\` on 14 real tools from 5 official MCP servers
+  (filesystem, github, git, fetch, memory — \`scripts/_real-mcp-surface.mjs\`) —
+
+  > naive ${realNaive} tokens → lean ${realLean} tokens — ${realPct}% saved, break-even n=${realBreakEven}
+
+  Lower than the illustrative surface because real surfaces mix paragraph-long
+  and one-line tools. Same caveat: this is a COST axis; it says nothing about
+  whether the agent picks the right tool.
+
 ## Raw smoke output
 
 \`\`\`
@@ -78,5 +94,5 @@ public repo is a deliberate human step (machine builds, human publishes)._
 `;
 
 writeFileSync(join(root, "EVIDENCE.md"), md, "utf8");
-console.log(`EVIDENCE.md written — smoke ${allPass ? "PASS" : "FAIL"} (${passLines} passed), example ${example.ok ? "ok" : "err"}, benchmark ${benchmark.ok ? "ok" : "err"}.`);
-process.exit(allPass && example.ok && benchmark.ok ? 0 : 1);
+console.log(`EVIDENCE.md written — smoke ${allPass ? "PASS" : "FAIL"} (${passLines} passed), example ${example.ok ? "ok" : "err"}, benchmark ${benchmark.ok ? "ok" : "err"}, real-mcp ${realMcp.ok ? "ok" : "err"}.`);
+process.exit(allPass && example.ok && benchmark.ok && realMcp.ok ? 0 : 1);

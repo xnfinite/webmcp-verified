@@ -189,6 +189,9 @@ tools to an AI):
   figure is pinned by an automated **test** (a tiny extra program that checks the
   main one still does what it claims and shouts if it doesn't), so it can't
   silently drift.
+- Measured on **14 real tools from five official MCP servers** instead of the
+  sample, the saving is **56%** — a bit lower, because real surfaces mix
+  paragraph-long and one-line tools, and the one-liners don't compress much.
 
 **The fine print, because it matters:**
 
@@ -206,7 +209,7 @@ tools to an AI):
 - It counts *tokens*, not *quality*. Fewer tokens to choose is the claim; it does
   not claim to make the AI smarter.
 
-There are also **50 automated tests** that run in a couple of seconds and check
+There are also **58 automated tests** that run in a couple of seconds and check
 every promise above — grounding, the fallback, the receipt, the menus, the token
 counts. Anyone can download a copy of the project and run them.
 
@@ -237,6 +240,12 @@ answers those tools give **trustworthy and cheap**.
 A tool worth trusting is as clear about its edges as its strengths. This one does
 **not**:
 
+- **Make the AI pick the *right* tool.** The short menu makes the tool list
+  cheaper to *read*; it does nothing for which tool gets *chosen*. If an AI keeps
+  picking the wrong one, the fix is fewer, genuinely distinct tools — turn
+  variations on the same question into a parameter, not a new tool.
+  Practitioners on r/mcp made this point sharply, and they're right. (The
+  library can flag *candidates* to merge; the merge itself is a human call.)
 - **Make your data correct.** It guarantees the answer came from your source. If
   your source has the wrong price in it, you'll get the wrong price — faithfully.
   Keeping the data right is still your job.

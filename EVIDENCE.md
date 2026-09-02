@@ -1,6 +1,6 @@
 # Evidence — auto-generated
 
-_Regenerated 2026-09-02 01:27 UTC by `node scripts/evidence.mjs`. Reproducible: clone,
+_Regenerated 2026-09-02 18:55 UTC by `node scripts/evidence.mjs`. Reproducible: clone,
 run the command, get this file. Nothing here is asserted by hand._
 
 ## Guarantees, tested live
@@ -19,8 +19,8 @@ run the command, get this file. Nothing here is asserted by hand._
     "grounded": 2,
     "fallback": 1,
     "error": 0,
-    "avgMs": 5.7,
-    "maxMs": 16.5,
+    "avgMs": 6.1,
+    "maxMs": 17.6,
     "totalTokens": 136,
     "avgTokens": 45
   }
@@ -41,6 +41,16 @@ run the command, get this file. Nothing here is asserted by hand._
   robust figures (both paths use the same gauge, so the factor cancels). It
   counts tokens, not reasoning quality. The exact numbers are pinned by smoke
   test T38, so this line cannot silently drift from the code.
+
+- **Real MCP surface (the number to quote):** measured by
+  `npm run real-mcp` on 14 real tools from 5 official MCP servers
+  (filesystem, github, git, fetch, memory — `scripts/_real-mcp-surface.mjs`) —
+
+  > naive 1217 tokens → lean 536 tokens — 56% saved, break-even n=3
+
+  Lower than the illustrative surface because real surfaces mix paragraph-long
+  and one-line tools. Same caveat: this is a COST axis; it says nothing about
+  whether the agent picks the right tool.
 
 ## Raw smoke output
 
