@@ -59,6 +59,11 @@
   .ungrounded .note{color:var(--mut);font-size:12.5px;margin-top:6px}
   /* discovery */
   .slider{width:100%;margin:8px 0 4px;accent-color:var(--acc)}
+  .surface{display:flex;flex-wrap:wrap;gap:5px;margin:10px 0 14px}
+  .tool{font-family:var(--mono);font-size:11.5px;color:var(--mut);background:var(--panel2);
+    border:1px solid var(--line);border-radius:6px;padding:3px 7px;transition:.12s}
+  .tool.on{color:var(--tx);border-color:#2b3f52}
+  .tool .srv{color:var(--dim)}
   .nlabel{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:var(--mut)}
   .bars{margin-top:14px;display:grid;gap:10px}
   .bar{display:grid;grid-template-columns:120px 1fr 84px;align-items:center;gap:10px;font-family:var(--mono);font-size:12.5px}
@@ -109,9 +114,11 @@
   <section>
     <div class="kicker">2 · cheaper to discover</div>
     <h2>The token cost of choosing a tool</h2>
-    <p class="sub small">An agent loads every tool's full schema before it picks one. This ships a one-line menu instead and pulls the full schema only for the tool it uses. That makes the list <b>cheaper to read</b> — it does not make the agent pick <i>better</i>. Drag to change how many tools your agent has:</p>
-    <div class="nlabel"><span>1 tool</span><span id="ncur">12 tools</span><span>12 tools</span></div>
-    <input class="slider" id="nslider" type="range" min="1" max="12" value="12" />
+    <p class="sub small">An agent loads every tool's full schema before it picks one. This ships a one-line menu instead and pulls the full schema only for the tool it uses. That makes the list <b>cheaper to read</b> — it does not make the agent pick <i>better</i>.</p>
+    <p class="sub small">Measured on <b>14 real tools from 5 official MCP servers</b> — not a made-up surface. Descriptions are verbatim from each server's source:</p>
+    <div class="surface" id="surface"></div>
+    <div class="nlabel"><span>1 tool</span><span id="ncur">14 tools</span><span>14 tools</span></div>
+    <input class="slider" id="nslider" type="range" min="1" max="14" value="14" />
     <div class="bars" id="bars"></div>
     <div id="verdict"></div>
   </section>
@@ -148,7 +155,7 @@
 
 <script type="module">
 import { defineTool, AuditLog, discoveryBreakEven } from "../src/index.js";
-import { buildSurface } from "../scripts/_surface.mjs";
+import { buildRealSurface, realSpecs } from "../scripts/_real-mcp-surface.mjs";
 
 /* ---- the shop's quoting tool (the worked example, dogfooded) ---- */
 const RATE_CARD = {
@@ -249,14 +256,23 @@ document.getElementById("tamper").onclick=(e)=>{
     : "";
 };
 
-/* ---- section 2: discovery ---- */
-const be = discoveryBreakEven(buildSurface());
+/* ---- section 2: discovery, measured on the REAL MCP surface ---- */
+const be = discoveryBreakEven(buildRealSurface());
 const maxNaive = be.perN[be.perN.length-1].naive || 1;
+const N = be.perN.length;
+
+// show the actual tool names so a dev recognises their own surface
+const elSurface=document.getElementById("surface");
+elSurface.innerHTML = realSpecs.map(([srv,name])=>
+  `<span class="tool" data-name="${name}"><span class="srv">${srv}/</span>${name}</span>`).join("");
+
 const slider=document.getElementById("nslider");
 slider.oninput=()=>renderDisc(+slider.value);
 function renderDisc(n){
   const row=be.perN[n-1];
   document.getElementById("ncur").textContent=n+(n===1?" tool":" tools");
+  // light up only the tools currently in the measured surface
+  [...elSurface.children].forEach((el,i)=>el.classList.toggle("on", i < n));
   const w=v=>Math.max(2,Math.round(v/maxNaive*100));
   document.getElementById("bars").innerHTML=
     `<div class="bar"><span class="muted">naive</span><div class="track"><div class="fill naive" style="width:${w(row.naive)}%"></div></div><span class="val">${row.naive} tok</span></div>
@@ -264,9 +280,9 @@ function renderDisc(n){
   const v=document.getElementById("verdict");
   if(row.leanWins){const pct=Math.round(row.saved/row.naive*100);
     v.className="verdict win"; v.textContent=`lean saves ${row.saved} tokens (${pct}%) at ${n} tools`;}
-  else{v.className="verdict lose"; v.textContent=`at ${n} tool the round-trip costs ${-row.saved} more — lean doesn't pay off yet (it wins from 2 up)`;}
+  else{v.className="verdict lose"; v.textContent=`at ${n} tool${n===1?"":"s"} the round-trip costs ${-row.saved} more — lean doesn't pay off yet (it wins from ${be.n} up)`;}
 }
-renderDisc(12);
+renderDisc(N);
 
 /* ---- utils ---- */
 function escapeH(s){return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
