@@ -16,7 +16,7 @@
  * and disambiguation are different problems; progressive disclosure only
  * touches the first. Run: node scripts/overlap.mjs
  */
-import { defineTool, discoveryCost, discoveryBreakEven, schemaCollisions } from "../src/index.js";
+import { defineTool, discoveryCost, discoveryBreakEven, schemaCollisions, variationCandidates } from "../src/index.js";
 import { specs, buildSurface } from "./_surface.mjs";
 
 const distinct = buildSurface();
@@ -48,7 +48,39 @@ console.log("\nschemaCollisions — the disambiguation axis (a design check, not
 console.log(`  DISTINCT surface:    ${schemaCollisions(distinct).length} collision group(s) — all tools tell apart`);
 console.log(`  OVERLAPPING surface: ${oc.length} group of ${oc[0] ? oc[0].tools.length : 0} indistinguishable tools`);
 
-console.log("\nNote: this is the token axis only. Overlap's real cost is pick");
-console.log("ACCURACY at call time — a different problem progressive disclosure");
-console.log("does not solve. Two {query:string} tools stay indistinguishable no");
-console.log("matter how cheaply they load.");
+// The other half of the disambiguation axis: not "identical at call time" but
+// "this looks like one tool with a parameter." Answers Appbot_official's rule
+// directly — a variation on the same question should have been a parameter.
+const appbot = [
+  ["get_reviews", { app_id: "string", page: "number" }, ["app_id"]],
+  ["get_reviews_by_version", { app_id: "string", page: "number", version: "string" }, ["app_id"]],
+  ["get_reviews_by_sentiment", { app_id: "string", sentiment: "string" }, ["app_id"]],
+  ["get_recent_reviews", { app_id: "string", days: "number" }, ["app_id"]]
+].map(([name, props, required]) => defineTool({
+  name, description: `Fixture: ${name.replace(/_/g, " ")} — a variation on one question.`,
+  inputSchema: { type: "object", properties: Object.fromEntries(Object.entries(props).map(([k, t]) => [k, { type: t }])), required },
+  source: () => ({}), resolve: () => ({ lines: [["ok", 1]] })
+}));
+
+console.log("\nvariationCandidates — [HEURISTIC] tools that LOOK like one tool plus a parameter.");
+console.log("It suggests questions for a human; it never detects duplication or decides a merge.");
+for (const [label, tools] of [...rows, ["FOUR TOOLS THAT SHOULD BE ONE (fixture)", appbot]]) {
+  const v = variationCandidates(tools);
+  console.log(`  ${label.padEnd(39)} ${v.families.length} famil${v.families.length === 1 ? "y " : "ies"}  (${v.involved.length} of ${v.tools} tools involved)`);
+  for (const f of v.families) {
+    console.log(`      -> could be ONE tool: ${f.base}(${f.candidateParams.join(", ")})`);
+    for (const x of f.variants) console.log(`         ~ ${x.name} [${x.relation}] adds {${x.addedProps.join(",")}} drops {${x.missingProps.join(",")}}`);
+  }
+}
+console.log("\n  Note the two checks PARTITION the problem rather than double-report: the");
+console.log("  OVERLAPPING surface is 1 collision group and 0 variation families (identical");
+console.log("  at call time, but no name nests inside another), while the fixture is the");
+console.log("  reverse. Zero families never means a surface is clean — only that these");
+console.log("  signals did not fire on these names and schemas.");
+
+console.log("\nNote: the saving above is the token axis only. Overlap's real cost is pick");
+console.log("ACCURACY at call time — a different problem progressive disclosure does NOT");
+console.log("solve. Two {query:string} tools stay indistinguishable no matter how cheaply");
+console.log("they load. This is the point two r/mcp practitioners made, and they are right:");
+console.log("the accuracy fix is FEWER, GENUINELY DISTINCT TOOLS — merge variations into");
+console.log("parameters. variationCandidates helps you FIND those; you make the call.");

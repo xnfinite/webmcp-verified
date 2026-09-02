@@ -1,19 +1,22 @@
 /**
  * webmcp-verified — verified, token-lean agent tools for the agentic web.
  *
- * Two things nobody else guarantees, on top of any WebMCP/ACP tool surface:
+ * Two properties it adds, on top of any WebMCP/ACP tool surface:
  *
- *  1. CAN'T HALLUCINATE. The model never authors a value. Every number an
- *     agent gets is produced by resolve(args, data), a pure function of a
- *     source YOU declare. Off-source questions return a declared fallback,
- *     never an invented figure. Provenance is stamped on every reply.
+ *  1. GROUNDED, NOT INVENTED. Values come from resolve(args, data) — your
+ *     code over a source YOU declare — and off-source questions return a
+ *     declared fallback, never an invented figure. The model supplies the
+ *     validated arguments, not the answer. One boundary: a resolve that
+ *     echoes an agent-supplied arg into the result passes that text through
+ *     — the library grounds what it derives from your source (see README).
  *
  *  2. CHEAP FOR THE AGENT (the ICM way). Progressive disclosure: agents load
  *     a lean manifest (name + one line), pull full detail only when needed,
  *     and get compact results. Every call's output tokens are metered. The
  *     bigger DISCOVERY axis — the descriptions + schemas an agent loads to
  *     CHOOSE among ALL tools — is measured by discoveryCost() /
- *     discoveryBreakEven(), not just per-call output.
+ *     discoveryBreakEven(). That is a COST axis: it does not make an agent
+ *     pick better (see schemaCollisions/variationCandidates and the README).
  *
  * Dependency-free ESM. Browser (real WebMCP) + Node (tests). Spec shape per
  * the W3C WebMCP draft: registerTool / getTools / executeTool.
@@ -432,6 +435,90 @@ export interface SchemaCollision {
  * disambiguation). Empty when every schema is distinct.
  */
 export function schemaCollisions(tools: ReadonlyArray<ToolLike>): SchemaCollision[];
+
+// ---------------------------------------------------------------------------
+// Disambiguation axis, part two — variations that could have been parameters
+//
+// A HEURISTIC. It SUGGESTS candidates for a human design decision; it does not
+// detect duplication, does not read semantics, and guarantees nothing.
+// ---------------------------------------------------------------------------
+
+/** How a variant's input relates to its base's: exact superset, or one property short. */
+export type VariationRelation = "superset" | "near-superset";
+
+/** One tool that looks like a variation of the family's base. */
+export interface VariationVariant {
+  name: string;
+  /** "near-superset" means it drops one of the base's OPTIONAL properties. */
+  relation: VariationRelation;
+  /** The common input core. Never empty — a shared core is a required signal. */
+  sharedProps: string[];
+  /** What this variant adds: the candidate parameter(s) a merged tool would take. */
+  addedProps: string[];
+  /** Base properties it does not accept (length <= 1; always [] under strict). */
+  missingProps: string[];
+  /**
+   * Corroboration from the OTHER check, reported not gating: true when base and
+   * variant share an identical schemaSignature, i.e. schemaCollisions reports
+   * this pair as well.
+   */
+  sameSchemaSignature: boolean;
+}
+
+/** One base tool and the tools whose name and input both nest around it. */
+export interface VariationFamily {
+  /** The tool whose name words and input the others extend. */
+  base: string;
+  /** The base's name words, space-joined — e.g. "get review". */
+  stem: string;
+  /** [base, ...variant names], sorted. Same field name as SchemaCollision.tools. */
+  tools: string[];
+  /** Union of every variant's addedProps — the parameters one merged tool would take. */
+  candidateParams: string[];
+  variants: VariationVariant[];
+}
+
+/**
+ * The report from variationCandidates(). Self-describing: it echoes the gate it
+ * ran under so a printed report says which setting produced it.
+ */
+export interface VariationReport {
+  /** Number of tools considered (a describe_tool in the set is ignored). */
+  tools: number;
+  /** Echoed back: true = exact-superset only (divergence tolerance 0). */
+  strict: boolean;
+  families: VariationFamily[];
+  /**
+   * Unique tool names appearing in >= 1 family, sorted. `involved.length /
+   * tools` is the closest a static check gets to "how many of those twelve
+   * answer questions a human would phrase the same way" — as a count of
+   * QUESTIONS RAISED, never a defect rate, a score, or a verdict.
+   */
+  involved: string[];
+}
+
+/**
+ * A HEURISTIC that SUGGESTS tools which might be one tool with a parameter.
+ * It fires only when two independent syntactic signals agree: the base's name
+ * WORDS are a proper subset of the variant's, AND the variant can accept the
+ * base's input (non-empty shared core, at most one optional property dropped,
+ * no required property dropped).
+ *
+ * It reads a tool's NAME and INPUT-SCHEMA SHAPE and nothing else. It cannot see
+ * what a tool returns or means, so it cannot know whether two tools answer the
+ * same question; it is synonym-blind by construction; it cannot tell a qualifier
+ * that names a different OBJECT (create_user_group) from one that names a FILTER
+ * (get_recent_reviews); and it says NOTHING about tool-selection accuracy.
+ *
+ * An empty result means these two signals did not fire on these names and
+ * schemas — not that a surface is well designed. Untested, not missing.
+ *
+ * Deterministic: same input → identical output, whatever the input order.
+ */
+export function variationCandidates(
+  tools: ReadonlyArray<ToolLike>,
+  opts?: { strict?: boolean }
+): VariationReport;
 
 // ---------------------------------------------------------------------------
 // Mounting on a host

@@ -1,11 +1,11 @@
 # Evidence — auto-generated
 
-_Regenerated 2026-08-31 20:29 UTC by `node scripts/evidence.mjs`. Reproducible: clone,
+_Regenerated 2026-09-02 01:27 UTC by `node scripts/evidence.mjs`. Reproducible: clone,
 run the command, get this file. Nothing here is asserted by hand._
 
 ## Guarantees, tested live
 
-- **Smoke tests:** ALL PASS — 50 passed.
+- **Smoke tests:** ALL PASS — 58 passed.
   Covers: values derive from source, off-source returns a fallback (no
   invented number), customer/internal surface split, injected/unknown
   args dropped before resolve, out-of-enum rejected, read-only default,
@@ -19,8 +19,8 @@ run the command, get this file. Nothing here is asserted by hand._
     "grounded": 2,
     "fallback": 1,
     "error": 0,
-    "avgMs": 5.2,
-    "maxMs": 15.2,
+    "avgMs": 5.7,
+    "maxMs": 16.5,
     "totalTokens": 136,
     "avgTokens": 45
   }
@@ -92,7 +92,15 @@ PASS Fix3 package.json files[] ships proof assets (EVIDENCE.md, examples) and ev
 PASS T35 verified tool mounts onto an @mcp-b-style host; getTools exposes the lean descriptor
 PASS T35 agent drives discover/call/fallback/describe entirely through the host surface
 PASS T36 examples/mcp-b-interop.mjs runs via node and grounds a real value through the host
-PASS TD1 src/index.d.ts value exports match runtime (12 exports, no drift)
+PASS T39 schemaCollisions flags the two identical-schema tools, not the distinct one
+PASS T39 no collision reported when every schema is distinct
+PASS T40 FP control: 0 families on the 14 real MCP tools (strict + default) and on the 12-tool surface
+PASS T41 flags the mergeable family: get_reviews(days, sentiment, version) from 3 variants
+PASS T42 conjunction holds: name-nesting alone (maps_geocode) and schema-nesting alone (git_status) both stay silent
+PASS T43 checks partition (1 collision group, 0 variation families); deterministic; describe_tool filtered; empty/null safe
+PASS T44 strict drops the near-superset (2 variants -> 1 exact superset), and echoes the gate it ran under
+PASS T45 required-core guard: a dropped REQUIRED prop disqualifies; the same shape with it optional is offered (documented weak case)
+PASS TD1 src/index.d.ts value exports match runtime (15 exports, no drift)
 PASS TD2 src/harness.d.ts value exports match runtime (3 exports, no drift)
 PASS TD3 package.json "types" resolves (./src/index.d.ts) and ./harness has a co-located .d.ts
 

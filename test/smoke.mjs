@@ -3,11 +3,12 @@
  * Verifies: grounded answers, no-guess fallback, surface split, metrics
  * (incl. token cost), and the progressive-disclosure manifest/describe.
  */
-import { defineTool, mount, Metrics, manifest, describeTool, describeText, discoveryCost, discoveryBreakEven, estimateTokens, AuditLog, fingerprint, schemaCollisions } from "../src/index.js";
+import { defineTool, mount, Metrics, manifest, describeTool, describeText, discoveryCost, discoveryBreakEven, estimateTokens, AuditLog, fingerprint, schemaCollisions, variationCandidates } from "../src/index.js";
 import { runJourneys, LEAK } from "../src/harness.js";
 import * as INDEX_NS from "../src/index.js";
 import * as HARNESS_NS from "../src/harness.js";
 import { buildSurface } from "../scripts/_surface.mjs";
+import { buildRealSurface } from "../scripts/_real-mcp-surface.mjs";
 import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -325,6 +326,110 @@ ok(collide.length === 1 && collide[0].tools.length === 2 && collide[0].tools.inc
   "T39 schemaCollisions flags the two identical-schema tools, not the distinct one");
 ok(schemaCollisions([ov1, ovD]).length === 0,
   "T39 no collision reported when every schema is distinct");
+
+// --- variations that could have been parameters (variationCandidates) ---
+//
+// A HEURISTIC, and false positives are its main risk: a noisy check is worse
+// than no check. T40 is therefore the FALSE-POSITIVE CONTROL and T41 the
+// positive one — together they fence the heuristic from both sides, so any
+// future loosening fails the suite instead of quietly adding noise.
+
+const vFixture = (name, props, required = []) => defineTool({
+  name, description: `Fixture tool ${name} used to exercise the variation heuristic.`,
+  inputSchema: { type: "object", properties: Object.fromEntries(Object.entries(props).map(([k, t]) => [k, { type: t }])), required },
+  source: () => 1, resolve: () => ({ lines: [] })
+});
+
+// T40 — THE FALSE-POSITIVE CONTROL. 14 real tools from 5 official MCP servers
+// (a well-designed surface) and the 12-tool illustrative surface must both stay
+// SILENT, under the default tolerance and under strict.
+const real14 = buildRealSurface();
+const v40real = variationCandidates(real14);
+const v40realStrict = variationCandidates(real14, { strict: true });
+const v40surface = variationCandidates(surface);
+ok(v40real.tools === 14 && v40real.families.length === 0 && v40real.involved.length === 0 &&
+   v40realStrict.families.length === 0 && v40surface.families.length === 0,
+  `T40 FP control: 0 families on the 14 real MCP tools (strict + default) and on the 12-tool surface`);
+
+// T41 — THE POSITIVE CONTROL. Appbot_official's own worked example from r/mcp:
+// filtering by version, sentiment or date range should never have spawned a
+// fourth and fifth tool. One family, with the parameters a merged tool takes.
+const v41 = variationCandidates([
+  vFixture("get_reviews", { app_id: "string", page: "number" }, ["app_id"]),
+  vFixture("get_reviews_by_version", { app_id: "string", page: "number", version: "string" }, ["app_id"]),
+  vFixture("get_reviews_by_sentiment", { app_id: "string", sentiment: "string" }, ["app_id"]),
+  vFixture("get_recent_reviews", { app_id: "string", days: "number" }, ["app_id"])
+]);
+const f41 = v41.families[0];
+ok(v41.families.length === 1 && f41.base === "get_reviews" && f41.variants.length === 3 &&
+   JSON.stringify(f41.candidateParams) === JSON.stringify(["days", "sentiment", "version"]) &&
+   f41.variants.find((v) => v.name === "get_reviews_by_version").relation === "superset" &&
+   f41.variants.find((v) => v.name === "get_recent_reviews").relation === "near-superset" &&
+   v41.involved.length === 4,
+  `T41 flags the mergeable family: ${f41.base}(${f41.candidateParams.join(", ")}) from ${f41.variants.length} variants`);
+
+// T42 — THE CONJUNCTION IS LOAD-BEARING. Each signal alone is provably noisy on
+// a real surface, so neither may fire on its own:
+//   name nesting alone  -> maps_geocode ⊂ maps_reverse_geocode (unrelated tools)
+//   schema nesting alone -> git_status{repo_path} ⊂ git_commit{repo_path,message}
+ok(variationCandidates([
+     vFixture("maps_geocode", { address: "string" }, ["address"]),
+     vFixture("maps_reverse_geocode", { latitude: "number", longitude: "number" }, ["latitude", "longitude"])
+   ]).families.length === 0 &&
+   variationCandidates([
+     vFixture("git_status", { repo_path: "string" }, ["repo_path"]),
+     vFixture("git_commit", { repo_path: "string", message: "string" }, ["repo_path", "message"])
+   ]).families.length === 0 &&
+   variationCandidates([
+     vFixture("list_directory", { path: "string" }, ["path"]),
+     vFixture("list_allowed_directories", {}, [])
+   ]).families.length === 0,
+  "T42 conjunction holds: name-nesting alone (maps_geocode) and schema-nesting alone (git_status) both stay silent");
+
+// T43 — the two surface checks PARTITION the problem instead of double-reporting.
+// On the pathological all-{query:string} surface every tool collides, yet no
+// name nests inside another, so the heuristic says nothing. Also pins
+// determinism (input order cannot change output) and the describe_tool filter.
+const v43tools = surface.map((t) => defineTool({
+  name: t.name, description: t.description, help: t.help,
+  inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+  source: () => 1, resolve: () => ({ lines: [] })
+}));
+const v43 = variationCandidates(v43tools);
+const v43rev = variationCandidates([...v43tools].reverse());
+ok(schemaCollisions(v43tools).length === 1 && v43.families.length === 0 &&
+   JSON.stringify(v43) === JSON.stringify(v43rev) &&
+   variationCandidates([...real14, describeTool(real14)]).tools === 14 &&
+   variationCandidates([]).families.length === 0 && variationCandidates(null).tools === 0,
+  "T43 checks partition (1 collision group, 0 variation families); deterministic; describe_tool filtered; empty/null safe");
+
+// T44 — strict tightens, never loosens: it drops the one-property divergence
+// tolerance, so a near-superset variant disappears while an exact superset stays.
+const v44tools = [
+  vFixture("get_reviews", { app_id: "string", page: "number" }, ["app_id"]),
+  vFixture("get_reviews_by_version", { app_id: "string", page: "number", version: "string" }, ["app_id"]),
+  vFixture("get_recent_reviews", { app_id: "string", days: "number" }, ["app_id"])
+];
+const v44strict = variationCandidates(v44tools, { strict: true });
+ok(v44strict.strict === true && v44strict.families.length === 1 &&
+   v44strict.families[0].variants.length === 1 &&
+   v44strict.families[0].variants[0].name === "get_reviews_by_version" &&
+   v44strict.families[0].variants.every((v) => v.missingProps.length === 0) &&
+   variationCandidates(v44tools).families[0].variants.length === 2,
+  "T44 strict drops the near-superset (2 variants -> 1 exact superset), and echoes the gate it ran under");
+
+// T45 — a REQUIRED property the variant cannot accept disqualifies the family.
+// If the variant can't be asked the base's mandatory question, it is not a
+// variation of it. This is the guard on the known-weak create_user shape.
+ok(variationCandidates([
+     vFixture("create_user", { name: "string", email: "string" }, ["email"]),
+     vFixture("create_user_group", { name: "string", members: "array" }, [])
+   ]).families.length === 0 &&
+   variationCandidates([
+     vFixture("create_user", { name: "string", email: "string" }, []),
+     vFixture("create_user_group", { name: "string", members: "array" }, [])
+   ]).families.length === 1,
+  "T45 required-core guard: a dropped REQUIRED prop disqualifies; the same shape with it optional is offered (documented weak case)");
 
 // --- TypeScript declarations track the real exports (v0.6) ---
 

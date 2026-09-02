@@ -384,6 +384,199 @@ export function schemaCollisions(tools) {
   return [...by.entries()].filter(([, names]) => names.length > 1).map(([signature, names]) => ({ signature, tools: names }));
 }
 
+// ---------------------------------------------------------------------------
+// DISAMBIGUATION AXIS, PART TWO — variations that could have been parameters.
+//
+// This exists because of practitioner feedback on r/mcp (2026-09-01), and it
+// concedes their point rather than arguing with it: a cheaper menu does not fix
+// a blurry pick. Plastic-Risk-6309 — "the menu only makes reading cheaper, the
+// pick still happens on blurry input." Appbot_official, who runs a production
+// MCP server — "anything that was a variation on the same question became a
+// parameter instead of a new tool… the number worth watching isn't twelve, it's
+// how many of those twelve answer questions a human would phrase the same way."
+//
+// schemaCollisions states a FACT: two tools are literally indistinguishable by
+// their arguments at call time. variationCandidates raises a QUESTION: these
+// tools LOOK like one tool plus a parameter — should they be? It is a
+// HEURISTIC over two syntactic signals. It cannot read meaning, cannot see what
+// a tool returns, and never decides anything. The merge is a human's call.
+// ---------------------------------------------------------------------------
+
+/** Connectives dropped from a tool name before comparison. Fixed list, no lexicon. */
+const NAME_CONNECTIVES = new Set(["by", "with", "for", "of", "and", "or", "to", "in", "on", "from", "a", "an", "the"]);
+
+/**
+ * HEURISTIC helper (module-private). Crude suffix singulariser: `reviews`→
+ * `review`, `repositories`→`repository`, while `status`/`address`/`analysis`
+ * survive intact. A string rule, not a stemmer and not a lexicon — it WILL
+ * mangle irregular words (`children` stays `children`). It is applied to both
+ * sides of every comparison, so its errors cost recall, not precision.
+ */
+function singularise(w) {
+  if (w.length > 4 && /ies$/.test(w)) return w.slice(0, -3) + "y";
+  if (w.length >= 4 && /s$/.test(w) && !/(ss|us|is)$/.test(w)) return w.slice(0, -1);
+  return w;
+}
+
+/**
+ * HEURISTIC helper (module-private). A tool name's content words, in order,
+ * deduped. Splits on non-alphanumerics AND camelCase boundaries, lowercases,
+ * drops the fixed connective list, singularises. Assumes Latin-alphabet
+ * snake_case / kebab-case / camelCase names; opaque names (`tool_a1`) and
+ * non-English names yield nothing useful, which means silence, not noise.
+ */
+function nameTokens(name) {
+  const parts = String(name == null ? "" : name)
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/);
+  const out = [];
+  for (const p of parts) {
+    if (!p) continue;
+    const w = singularise(p.toLowerCase());
+    if (!w || NAME_CONNECTIVES.has(w) || out.includes(w)) continue;
+    out.push(w);
+  }
+  return out;
+}
+
+const schemaProps = (t) => { const s = (t && t.inputSchema) || {}; return (s.properties && typeof s.properties === "object") ? s.properties : {}; };
+const schemaRequired = (t) => { const s = (t && t.inputSchema) || {}; return Array.isArray(s.required) ? s.required : []; };
+const propType = (p) => (p && typeof p === "object" && p.type) || null;
+/** Shallow on purpose: only the top-level JSON-Schema `type`, absent matches anything. */
+const typesCompatible = (a, b) => a === null || b === null || a === b;
+
+/**
+ * HEURISTIC helper (module-private). Can `variant` accept `base`'s input?
+ * Returns null (no relation) unless all three schema gates pass:
+ *   2a shared core — at least one property present on BOTH with a compatible
+ *      declared type. This is what rejects name-nested-but-unrelated pairs such
+ *      as list_directory{path} / list_allowed_directories{} and
+ *      maps_geocode{address} / maps_reverse_geocode{latitude,longitude}.
+ *      Side effect, stated: a no-argument tool can never head a family.
+ *   2b divergence tolerance — at most `tolerance` of base's properties absent
+ *      (0 under strict). An absolute count, never a similarity score. It is the
+ *      only rule that catches a variant which REPLACES a filter rather than
+ *      adding one.
+ *   2c required-core preservation — none of base's REQUIRED properties may be
+ *      among the absent ones. If the variant cannot be asked the base's
+ *      mandatory question, it is not a variation of it.
+ */
+function schemaRelation(base, variant, tolerance) {
+  const bp = schemaProps(base), vp = schemaProps(variant);
+  const shared = [], missing = [];
+  for (const k of Object.keys(bp)) {
+    if (Object.prototype.hasOwnProperty.call(vp, k) && typesCompatible(propType(bp[k]), propType(vp[k]))) shared.push(k);
+    else missing.push(k);
+  }
+  if (shared.length < 1) return null;                                        // 2a
+  if (missing.length > tolerance) return null;                               // 2b
+  const req = schemaRequired(base);
+  if (missing.some((k) => req.includes(k))) return null;                     // 2c
+  const sharedSet = new Set(shared);
+  return {
+    relation: missing.length === 0 ? "superset" : "near-superset",
+    sharedProps: shared.slice().sort(),
+    addedProps: Object.keys(vp).filter((k) => !sharedSet.has(k)).sort(),
+    missingProps: missing.slice().sort()
+  };
+}
+
+/**
+ * A HEURISTIC that SUGGESTS tools which might be one tool with a parameter.
+ * It does NOT detect duplication, does not read semantics, and guarantees
+ * nothing. Read every result as a question for a human designer.
+ *
+ * It fires only when TWO INDEPENDENT SYNTACTIC SIGNALS agree on an ordered
+ * pair (base, variant). Neither is shippable alone, and the AND is the whole
+ * reason it stays quiet:
+ *
+ *   1. NAME NESTING — the base's name WORDS are a PROPER SUBSET of the
+ *      variant's (`get_reviews` ⊂ `get_reviews_by_version`). Set containment,
+ *      NOT a shared prefix or stem: that is what keeps sibling verbs
+ *      (`git_status` / `git_commit`, `search_code` / `search_issues`) out.
+ *      Names alone would flag `maps_geocode` / `maps_reverse_geocode`.
+ *   2. SCHEMA NESTING — the variant can accept the base's input (see
+ *      schemaRelation). Schemas alone would flag `git_status` ⊂ `git_commit`,
+ *      a strict subset of two unrelated tools.
+ *
+ * Equal token sets (`get_review` vs `get_reviews`) deliberately do NOT fire —
+ * that is schemaCollisions' half of the problem, and requiring PROPER
+ * containment keeps the classic get-one / list-many pattern quiet.
+ *
+ * Deliberately absent: description/prose similarity, edit distance, embeddings,
+ * synonym tables, similarity thresholds, and any per-family confidence score.
+ * Each would be a knob to tune, none could be defended as measured, and prose
+ * on a real surface is the noisiest input available.
+ *
+ * WHAT IT CANNOT DO. It reads a tool's NAME and its INPUT-SCHEMA SHAPE, and
+ * nothing else. It cannot see what a tool returns or means, so it cannot know
+ * whether two tools answer the same question — `get_issue` and
+ * `get_issue_comments` take identical arguments and return different things,
+ * and this offers them as a question it cannot answer. It is synonym-blind by
+ * construction (`get_reviews` vs `fetch_feedback` is invisible, permanently:
+ * closing that gap needs embeddings or a lexicon, i.e. a runtime dependency
+ * this library refuses). It cannot separate a qualifier that names a DIFFERENT
+ * OBJECT (`create_user` / `create_user_group`) from one that names a FILTER
+ * (`get_reviews` / `get_recent_reviews`) — that false positive is structural,
+ * not a tuning problem; marking the base's distinguishing field `required`
+ * suppresses it, and `strict:true` avoids the whole class. And it says NOTHING
+ * about tool-selection accuracy: this measures surface SHAPE, discoveryCost
+ * measures TOKENS, and neither measures whether an agent picks correctly.
+ *
+ * AN EMPTY RESULT IS NOT A CLEAN BILL OF HEALTH. It means these two signals did
+ * not fire on these names and these schemas. Untested, not missing.
+ *
+ * @param {Array} tools               a `describe_tool` in the set is ignored
+ * @param {{strict?:boolean}} [opts]  strict:true requires an exact superset
+ *                                    (divergence tolerance 0; default 1)
+ * @returns {{tools:number, strict:boolean, families:Array, involved:string[]}}
+ *   Deterministic: same input → byte-identical output, whatever the input order.
+ */
+export function variationCandidates(tools, opts = {}) {
+  const strict = opts.strict === true;
+  const tolerance = strict ? 0 : 1;
+  const real = (tools || []).filter((t) => t && t.name !== "describe_tool");
+  const words = real.map((t) => nameTokens(t.name));
+  const sets = words.map((w) => new Set(w));
+  const byBase = new Map();
+
+  for (let i = 0; i < real.length; i++) {
+    for (let j = 0; j < real.length; j++) {
+      if (i === j || real[i].name === real[j].name) continue;
+      // signal 1: proper subset of name words
+      if (!(sets[i].size < sets[j].size && words[i].every((w) => sets[j].has(w)))) continue;
+      // signal 2: the variant can accept the base's input
+      const rel = schemaRelation(real[i], real[j], tolerance);
+      if (!rel) continue;
+      if (!byBase.has(i)) byBase.set(i, []);
+      byBase.get(i).push({ name: real[j].name, ...rel,
+        // corroboration from the OTHER check, reported not gating: an identical
+        // signature means schemaCollisions already reports this pair too.
+        sameSchemaSignature: schemaSignature(real[i]) === schemaSignature(real[j]) });
+    }
+  }
+
+  const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const families = [...byBase.entries()].map(([i, variants]) => {
+    variants.sort((a, b) => byName(a.name, b.name));
+    const params = new Set();
+    for (const v of variants) for (const p of v.addedProps) params.add(p);
+    return {
+      base: real[i].name,
+      stem: words[i].join(" "),
+      tools: [real[i].name, ...variants.map((v) => v.name)].sort(byName),
+      candidateParams: [...params].sort(byName),
+      variants
+    };
+  }).sort((a, b) => byName(a.base, b.base));
+
+  const involved = [...new Set(families.flatMap((f) => f.tools))].sort(byName);
+  // involved.length / tools is the closest a static check gets to Appbot's
+  // "how many of those twelve answer questions a human would phrase the same
+  // way" — as a count of QUESTIONS RAISED, never a defect rate or a score.
+  return { tools: real.length, strict, families, involved };
+}
+
 /** Register tools with a WebMCP host (document.modelContext) or any registerTool host. */
 export function mount(host, tools, opts = {}) {
   assert(host && typeof host.registerTool === "function", "mount: host must expose registerTool");
