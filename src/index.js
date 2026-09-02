@@ -389,8 +389,8 @@ export function schemaCollisions(tools) {
 //
 // This exists because of practitioner feedback on r/mcp (2026-09-01), and it
 // concedes their point rather than arguing with it: a cheaper menu does not fix
-// a blurry pick. Plastic-Risk-6309 — "the menu only makes reading cheaper, the
-// pick still happens on blurry input." Appbot_official, who runs a production
+// a blurry pick. One r/mcp practitioner — "the menu only makes reading cheaper, the
+// pick still happens on blurry input." Another, who runs a production
 // MCP server — "anything that was a variation on the same question became a
 // parameter instead of a new tool… the number worth watching isn't twelve, it's
 // how many of those twelve answer questions a human would phrase the same way."
