@@ -133,6 +133,34 @@ git clone https://github.com/xnfinite/webmcp-verified
 ```
 > Once it's published, `npm install webmcp-verified` will be the install path.
 
+## Why not just write this yourself?
+
+You can. Every piece here is buildable by hand: a `resolve` that only reads your
+data, an `if (!found) return fallback`, a hash of the output, a shorter
+description string. Nothing in this library is a capability you could not
+otherwise have — be clear-eyed about that before adopting it.
+
+What it packages is the part that *drifts* when you hand-roll it per tool:
+
+- **The boundaries that are easy to get subtly wrong.** A customer surface that
+  structurally *cannot receive* internal rows (not "remembers to filter them"),
+  an input boundary that drops unknown fields *before* `resolve` runs, a receipt
+  whose fingerprint is stable and re-checkable. Each is five lines you will
+  write slightly differently on the fourth tool.
+- **The measurement.** `discoveryCost` and per-call metering mean you can
+  *prove* what a surface costs an agent instead of asserting it. Hand-rolled
+  code rarely ships with its own benchmark.
+- **The tests.** 58 assertions pin the guarantees — including the one that fails
+  if the merge heuristic ever gets noisy — so a refactor can't quietly break a
+  promise the README still makes.
+- **One shape for two readers.** Every tool returns readable text and
+  `structuredContent` the same way, so a human and an agent get consistent
+  output across a whole surface without each tool re-deciding it.
+
+When to skip it: two tools, full control, you already test them — hand-roll it.
+It pays off at the point where this discipline would otherwise be re-derived
+per tool and drift.
+
 ## Problems this solves
 
 Reach for this if you're dealing with any of these (the honest list — only
