@@ -2,3 +2,7 @@ node_modules/
 *.log
 .DS_Store
 .env
+
+# Private context layer — orients a human or AI session working on this repo.
+# Local only: never pushed to GitHub, never shipped to npm.
+.icm/
