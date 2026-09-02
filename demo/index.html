@@ -109,7 +109,7 @@
   <section>
     <div class="kicker">2 · cheaper to discover</div>
     <h2>The token cost of choosing a tool</h2>
-    <p class="sub small">An agent reads every tool's full schema just to pick one. This ships a one-line menu instead and pulls the full schema only for the tool it uses. Drag to change how many tools your agent has:</p>
+    <p class="sub small">An agent loads every tool's full schema before it picks one. This ships a one-line menu instead and pulls the full schema only for the tool it uses. That makes the list <b>cheaper to read</b> — it does not make the agent pick <i>better</i>. Drag to change how many tools your agent has:</p>
     <div class="nlabel"><span>1 tool</span><span id="ncur">12 tools</span><span>12 tools</span></div>
     <input class="slider" id="nslider" type="range" min="1" max="12" value="12" />
     <div class="bars" id="bars"></div>
@@ -134,6 +134,7 @@
     <ul class="honest">
       <li>The token counts use a ~4-char/token gauge, so absolute numbers are approximate — the <b>%</b> and the break-even are the robust figures.</li>
       <li>Lean discovery <b>loses under 2 tools</b> (the describe round-trip costs more than it saves). It's a many-tools win, not magic.</li>
+      <li>This is a <b>cost</b> lever, not an accuracy one. If an agent picks the <i>wrong</i> tool, a cheaper menu won't fix it — two tools with blurry boundaries stay blurry once the schema loads. The fix for that is <b>fewer, genuinely distinct tools</b>: turn variations on the same question into a parameter instead of a new tool. (Credit to the practitioners on r/mcp who made this point sharply.)</li>
       <li>Grounding stops the tool inventing a value off your source. It can't make your source data correct — that's still on you.</li>
       <li>The fingerprint is tamper-<i>evidence</i>, not a cryptographic signature.</li>
     </ul>
