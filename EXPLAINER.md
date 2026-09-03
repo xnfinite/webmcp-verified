@@ -177,41 +177,87 @@ everything" idea, turned into money saved.
 
 ## 4. The results (measured, with the fine print attached)
 
-Claims are cheap, so this project measures. In an illustrative test set-up of
-**12 tools** (a "set-up" here just means a sample website offering that many
-tools to an AI):
+Claims are cheap, so this project measures — and one part of the model
+needed correcting. An earlier version assumed the short menu (see Promise 3,
+above) could skip a tool's **input form** — the list of blanks it needs
+filled in, like "make," "model," "issue" for a repair-quote tool, written in
+a format called a JSON schema. That assumption was wrong: the rulebook these
+tools live under, the [MCP spec](https://modelcontextprotocol.io/specification/2026-07-28/server/tools),
+*requires* the form to be in the short menu — a website can't leave it out.
+What can still wait until the AI asks for it is only the long paragraph of
+help text. Every number below reflects that correction.
 
-- Reading the tools the old way ("here's every tool's full description up front")
-  costs about **1,340 tokens**.
-- Reading them the lean way (short menu + full detail only for the one used)
-  costs about **443 tokens**.
-- That's roughly **67% fewer tokens** just to choose a tool — and the exact
-  figure is pinned by an automated **test** (a tiny extra program that checks the
-  main one still does what it claims and shouts if it doesn't), so it can't
-  silently drift.
-- Measured on **14 real tools from five official MCP servers** instead of the
-  sample, the saving is **56%** — a bit lower, because real surfaces mix
-  paragraph-long and one-line tools, and the one-liners don't compress much.
+Measured on **14 real tools pulled from five official MCP servers** (a
+realistic mix, not a made-up sample):
+
+- Reading every tool's full write-up — form and help text both — up front
+  costs about **1,217 tokens**.
+- Reading the short menu (form included, since the rules require it) and
+  asking for full help text on only the one tool actually used costs about
+  **1,112 tokens** — a **9% saving** (pinned by an automated **test**, a
+  tiny extra program that checks the main one still does what it claims, so
+  the figure can't silently drift).
+- If the AI never asks for help text at all — it decides from the short menu
+  alone — the saving rises to **21%**.
+
+On the illustrative 12-tool sample used elsewhere in this document, the same
+kind of saving is bigger — **34%** (1,340 tokens down to 882) — because that
+sample's tools carry more help text relative to the size of their forms.
+
+**Why real tools barely save anything: their forms are bigger than their
+help text.** Across the 14 real tools, the forms add up to about 528 tokens
+and the help text to about 501 — nearly even, so cutting the help text
+barely dents the total. The illustrative sample runs the other way — about
+779 tokens of help against only 399 tokens of form — so cutting the help
+does most of the work there. Deferring help only saves a lot when help is
+the bigger of the two piles, and on real servers it usually isn't.
+
+Those numbers describe how MCP and WebMCP hosts work today, where the form
+is required in the menu. *If* a host ever let a tool leave its form out of
+the menu entirely too — something the current MCP spec does not allow,
+though the separate, still-draft WebMCP proposal doesn't require the form
+either — the saving would look much bigger: **56%** on the same 14 real
+tools (1,217 tokens down to 536), and **67%** on the illustrative 12-tool
+sample (1,340 down to 443). Treat those two numbers as a ceiling for a kind
+of host that doesn't fully exist today, not as something you'll see now.
 
 **The fine print, because it matters:**
 
 - The 12-tool number is *illustrative*, not universal. How big the saving is
-  depends on how many tools go unused and how wordy their descriptions are — the
-  more tools the AI *doesn't* end up reading in full, the more it saves.
-- The token counter is a fast *estimate* (about 4 characters per token), not a
-  perfect one, so treat the absolute numbers (1,340 / 443) as approximate. The
-  *percentage* is more trustworthy than the raw counts, because the same estimate
-  is used on both sides and any error cancels out.
-- This lean approach **only wins when there are several tools**. With just one
-  tool, the "short menu then ask for detail" round-trip actually costs a little
-  *more*. The code computes the exact crossover — for this set it's **2 tools** —
-  and reports it plainly instead of hiding it.
-- It counts *tokens*, not *quality*. Fewer tokens to choose is the claim; it does
-  not claim to make the AI smarter.
+  depends on how many tools go unused and how wordy their help text is — the
+  more tools the AI *doesn't* end up asking about, the more it saves.
+- The token counter is a fast *estimate* (about 4 characters per token), not
+  a perfect one, so treat the raw counts (1,217 / 1,112 / 1,340 / 882) as
+  approximate. The *percentage* is more trustworthy than the raw counts,
+  because the same estimate is used on both sides and any error cancels out.
+- This lean approach **only wins when there are several tools**. With just a
+  couple of tools, the "short menu then ask for help" round-trip can cost a
+  little *more* than just reading everything up front. The code computes the
+  exact crossover instead of hiding it: **4 tools**, whether you look at the
+  real 14-tool set or the illustrative 12-tool set, in today's required-form
+  menu. (In the hypothetical host that also lets the form be skipped, the
+  crossover drops to 3 tools for the real set and 2 for the illustrative
+  one.)
+- It counts *tokens*, not *quality*. Fewer tokens to choose is the claim; it
+  does not claim to make the AI smarter.
 
-There are also **58 automated tests** that run in a couple of seconds and check
-every promise above — grounding, the fallback, the receipt, the menus, the token
-counts. Anyone can download a copy of the project and run them.
+**Over a longer conversation, the numbers hold up but flatten out.** Many AI
+services offer **prompt caching** — a discount for re-reading text the AI
+has already seen earlier in the same conversation, instead of paying full
+price for it again. Once the tool menu is read on turn one, re-reading it on
+later turns is cheap; asking for one tool's help text is a small extra call
+on top of that. Priced with one vendor's published cache discount — a
+setting you can swap for another vendor's numbers, not a fixed law of AI
+pricing — the real 14-tool required-form saving settles around **5% by the
+tenth turn** of a conversation. The hypothetical no-form host stays close to
+its single-turn number too, around **52% by turn ten**. Change the price
+ratios and both numbers move; they describe one vendor's pricing, not token
+costs in general.
+
+There are also **71 automated tests** that run in a couple of seconds and
+check every promise above — grounding, the fallback, the receipt, the
+menus, and every token count quoted here — pinned so they can't silently
+drift. Anyone can download a copy of the project and run them.
 
 ---
 
@@ -246,6 +292,13 @@ A tool worth trusting is as clear about its edges as its strengths. This one doe
   variations on the same question into a parameter, not a new tool.
   Practitioners on r/mcp made this point sharply, and they're right. (The
   library can flag *candidates* to merge; the merge itself is a human call.)
+- **Make discovery cheap on a host that already has short help text.** The
+  menu still has to carry every tool's input form — the MCP spec requires
+  it — so deferring only the long help text saves a modest amount on a real
+  MCP server: about **9%**, measured on 14 tools from five official servers
+  (see section 4). The bigger percentages elsewhere in this document
+  describe an illustrative sample or a hypothetical host that doesn't
+  require the form; don't expect them from a typical MCP server today.
 - **Make your data correct.** It guarantees the answer came from your source. If
   your source has the wrong price in it, you'll get the wrong price — faithfully.
   Keeping the data right is still your job.

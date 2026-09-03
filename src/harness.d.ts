@@ -8,7 +8,7 @@
  *   - runOnHost(doc, setup, ...)   : installs a capturing modelContext,
  *                                    invokes the page's registration, runs.
  *
- * Hand-authored declarations for the public API of src/harness.js (v0.6.0),
+ * Hand-authored declarations for the public API of src/harness.js (v0.7.0),
  * backed by the runtime behaviour test/smoke.mjs exercises.
  */
 

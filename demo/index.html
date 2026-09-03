@@ -114,13 +114,16 @@
   <section>
     <div class="kicker">2 · cheaper to discover</div>
     <h2>The token cost of choosing a tool</h2>
-    <p class="sub small">An agent loads every tool's full schema before it picks one. This ships a one-line menu instead and pulls the full schema only for the tool it uses. That makes the list <b>cheaper to read</b> — it does not make the agent pick <i>better</i>.</p>
+    <p class="sub small">An agent loads the tool list before it picks one. The primary numbers below are <b>served</b> — schema in the list (what this library registers on an MCP/WebMCP host, since MCP requires it) — where only the long-form help text is deferred, pulled in full only for the tool the agent uses. Lighter, underneath: <b>schema-deferred</b> — only if your host lets you omit <code>inputSchema</code> — an upper bound most hosts can't actually offer.</p>
     <p class="sub small">Measured on <b>14 real tools from 5 official MCP servers</b> — not a made-up surface. Descriptions are verbatim from each server's source:</p>
     <div class="surface" id="surface"></div>
     <div class="nlabel"><span>1 tool</span><span id="ncur">14 tools</span><span>14 tools</span></div>
     <input class="slider" id="nslider" type="range" min="1" max="14" value="14" />
     <div class="bars" id="bars"></div>
     <div id="verdict"></div>
+    <div id="verdictDeferred" class="muted small" style="margin-top:6px"></div>
+    <p class="muted small" id="fullSurfaceNote" style="margin-top:10px"></p>
+    <p class="muted small" id="cacheNote" style="margin-top:6px"></p>
   </section>
 
   <!-- 3. RECEIPT -->
@@ -140,7 +143,7 @@
     <div class="kicker">honest scope</div>
     <ul class="honest">
       <li>The token counts use a ~4-char/token gauge, so absolute numbers are approximate — the <b>%</b> and the break-even are the robust figures.</li>
-      <li>Lean discovery <b>loses under 2 tools</b> (the describe round-trip costs more than it saves). It's a many-tools win, not magic.</li>
+      <li>Lean discovery <b>loses under 4 tools</b> on this surface (the describe round-trip costs more than it saves), and loses again once the agent describes a second tool. A few-of-many-tools win, not magic.</li>
       <li>This is a <b>cost</b> lever, not an accuracy one. If an agent picks the <i>wrong</i> tool, a cheaper menu won't fix it — two tools with blurry boundaries stay blurry once the schema loads. The fix for that is <b>fewer, genuinely distinct tools</b>: turn variations on the same question into a parameter instead of a new tool. (Credit to the practitioners on r/mcp who made this point sharply.)</li>
       <li>Grounding stops the tool inventing a value off your source. It can't make your source data correct — that's still on you.</li>
       <li>The fingerprint is tamper-<i>evidence</i>, not a cryptographic signature.</li>
@@ -154,7 +157,7 @@
 </div>
 
 <script type="module">
-import { defineTool, AuditLog, discoveryBreakEven } from "../src/index.js";
+import { defineTool, AuditLog, discoveryBreakEven, discoveryCostOverTurns } from "../src/index.js";
 import { buildRealSurface, realSpecs } from "../scripts/_real-mcp-surface.mjs";
 
 /* ---- the shop's quoting tool (the worked example, dogfooded) ---- */
@@ -257,7 +260,9 @@ document.getElementById("tamper").onclick=(e)=>{
 };
 
 /* ---- section 2: discovery, measured on the REAL MCP surface ---- */
-const be = discoveryBreakEven(buildRealSurface());
+const discTools = buildRealSurface();
+const be = discoveryBreakEven(discTools, { list: "served" });
+const beDeferred = discoveryBreakEven(discTools, { list: "deferred" });
 const maxNaive = be.perN[be.perN.length-1].naive || 1;
 const N = be.perN.length;
 
@@ -270,6 +275,7 @@ const slider=document.getElementById("nslider");
 slider.oninput=()=>renderDisc(+slider.value);
 function renderDisc(n){
   const row=be.perN[n-1];
+  const rowDef=beDeferred.perN[n-1];
   document.getElementById("ncur").textContent=n+(n===1?" tool":" tools");
   // light up only the tools currently in the measured surface
   [...elSurface.children].forEach((el,i)=>el.classList.toggle("on", i < n));
@@ -279,10 +285,25 @@ function renderDisc(n){
      <div class="bar"><span class="muted">lean</span><div class="track"><div class="fill lean" style="width:${w(row.lean)}%"></div></div><span class="val">${row.lean} tok</span></div>`;
   const v=document.getElementById("verdict");
   if(row.leanWins){const pct=Math.round(row.saved/row.naive*100);
-    v.className="verdict win"; v.textContent=`lean saves ${row.saved} tokens (${pct}%) at ${n} tools`;}
-  else{v.className="verdict lose"; v.textContent=`at ${n} tool${n===1?"":"s"} the round-trip costs ${-row.saved} more — lean doesn't pay off yet (it wins from ${be.n} up)`;}
+    v.className="verdict win"; v.textContent=`served: lean saves ${row.saved} tokens (${pct}%) at ${n} tools`;}
+  else{v.className="verdict lose"; v.textContent=`served: at ${n} tool${n===1?"":"s"} the round-trip costs ${-row.saved} more — lean doesn't pay off yet (it wins from ${be.n} up)`;}
+  const vd=document.getElementById("verdictDeferred");
+  if(rowDef.leanWins){const dpct=Math.round(rowDef.saved/rowDef.naive*100);
+    vd.textContent=`schema-deferred: only if your host lets you omit inputSchema — lean saves ${rowDef.saved} tokens (${dpct}%) at ${n} tools`;}
+  else{vd.textContent=`schema-deferred: only if your host lets you omit inputSchema — at ${n} tool${n===1?"":"s"} it doesn't pay off yet either (wins from ${beDeferred.n} up)`;}
 }
 renderDisc(N);
+
+// the served number at the full real surface (slider max) — the one to quote
+const fullServed = be.perN[N-1];
+const fullPct = Math.round(fullServed.saved/fullServed.naive*100);
+document.getElementById("fullSurfaceNote").textContent =
+  `At the full ${N}-tool real surface, served saves ${fullServed.saved} tokens (${fullPct}%) over naive. That makes the list cheaper to read; it does not make the agent pick better.`;
+
+// discoveryCostOverTurns: the same discovery, priced with prompt caching over a session
+const overTurns = discoveryCostOverTurns(discTools, { turns: 10, used: 1, list: "served" });
+document.getElementById("cacheNote").textContent =
+  `Priced with prompt caching over a ${overTurns.turns}-turn session, served still saves ${overTurns.total.savedPct}% cumulatively — price ratios are defaults (output ${overTurns.prices.output}x, cache write ${overTurns.prices.cacheWrite}x, cache read ${overTurns.prices.cacheRead}x).`;
 
 /* ---- utils ---- */
 function escapeH(s){return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}

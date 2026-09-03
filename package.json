@@ -1,6 +1,6 @@
 {
   "name": "webmcp-verified",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Build agent tools that can't invent values outside your data. Answers derive from a declared source; off-source returns a fallback, never a guess. Token-lean, with an audit receipt. WebMCP/MCP, zero dependencies.",
   "type": "module",
   "main": "./src/index.js",
@@ -28,7 +28,8 @@
     "overlap": "node scripts/overlap.mjs",
     "tokenizer": "node scripts/tokenizer-check.mjs",
     "used-curve": "node scripts/used-curve.mjs",
-    "real-mcp": "node scripts/real-mcp.mjs"
+    "real-mcp": "node scripts/real-mcp.mjs",
+    "cache-curve": "node scripts/cache-curve.mjs"
   },
   "keywords": [
     "webmcp",

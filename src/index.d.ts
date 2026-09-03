@@ -10,18 +10,26 @@
  *     echoes an agent-supplied arg into the result passes that text through
  *     — the library grounds what it derives from your source (see README).
  *
- *  2. CHEAP FOR THE AGENT (the ICM way). Progressive disclosure: agents load
- *     a lean manifest (name + one line), pull full detail only when needed,
- *     and get compact results. Every call's output tokens are metered. The
- *     bigger DISCOVERY axis — the descriptions + schemas an agent loads to
- *     CHOOSE among ALL tools — is measured by discoveryCost() /
- *     discoveryBreakEven(). That is a COST axis: it does not make an agent
- *     pick better (see schemaCollisions/variationCandidates and the README).
+ *  2. CHEAP FOR THE AGENT (the ICM way). Progressive disclosure: the tool
+ *     list an agent reads holds name + one-line description + inputSchema
+ *     (that is what defineTool() returns and mount() registers on an
+ *     MCP/WebMCP host); the long-form `help` is deferred behind describe_tool
+ *     and pulled only for the tool actually used; results are compact. Every
+ *     call's output tokens are metered. The bigger DISCOVERY axis — the
+ *     descriptions + schemas an agent loads to CHOOSE among ALL tools — is
+ *     measured by discoveryCost() / discoveryBreakEven(). Its default
+ *     ("served") counts the list this library actually serves, schema
+ *     included; its "deferred" mode counts a schema-less list and is an upper
+ *     bound that holds only on a host that lets you omit inputSchema from the
+ *     list. That is a COST axis: it does not make an agent pick better (see
+ *     schemaCollisions/variationCandidates and the README).
+ *     discoveryCostOverTurns() carries the same measurement across a session
+ *     with prompt caching, where a single-load count overstates the lean win.
  *
  * Dependency-free ESM. Browser (real WebMCP) + Node (tests). Spec shape per
  * the W3C WebMCP draft: registerTool / getTools / executeTool.
  *
- * Hand-authored declarations for the public API of src/index.js (v0.6.0).
+ * Hand-authored declarations for the public API of src/index.js (v0.7.0).
  * Every shape here is backed by the runtime behaviour the smoke suite
  * exercises (test/smoke.mjs) — the types make no claim the code does not.
  */
@@ -215,14 +223,15 @@ export interface ToolResult {
 }
 
 /**
- * The minimum a tool needs to appear in the lean manifest and the discovery
+ * The minimum a tool needs to appear in the tool list and the discovery
  * metering. Every Tool satisfies it; lighter descriptors can too.
  */
 export interface ToolLike {
   name: string;
   description: string;
+  /** Part of the served tool list (mount() registers it); not deferred. */
   inputSchema: JSONSchema;
-  /** Full detail, kept OUT of the manifest line and served on demand. */
+  /** Full detail, kept OUT of the tool list and served on demand via describe_tool. */
   help?: string;
 }
 
@@ -245,9 +254,9 @@ export interface Tool extends ToolLike {
  */
 export interface ToolDefinition<TData = any> {
   name: string;
-  /** Lean, agent-facing. The FIRST SENTENCE becomes the manifest line. Min 10 chars. */
+  /** Lean, agent-facing. The FIRST SENTENCE becomes the tool-list line. Min 10 chars. */
   description: string;
-  /** JSON Schema, `type: "object"`. */
+  /** JSON Schema, `type: "object"`. Served in the tool list; not deferred. */
   inputSchema: JSONSchema;
   /** The ground truth. May be async; the resolved value is passed to resolve(). */
   source: () => TData | Promise<TData>;
@@ -261,7 +270,7 @@ export interface ToolDefinition<TData = any> {
   sourceName?: string;
   /** 'full' sentence (default) or token-lean "✓ sourced". */
   provenance?: "full" | "compact";
-  /** Long-form detail, kept OUT of the lean surface and served on demand. */
+  /** Long-form detail, kept OUT of the tool list and served on demand via describe_tool. */
   help?: string;
   /** Share one meter across a toolkit by passing the same Metrics to every tool. */
   metrics?: Metrics;
@@ -286,17 +295,35 @@ export function defineTool<TData = any>(def: ToolDefinition<TData>): Tool;
 // Progressive disclosure (the ICM catalog, one layer down)
 // ---------------------------------------------------------------------------
 
-/** One line in the lean manifest an agent reads to discover tools cheaply. */
+/** One entry in the schema-DEFERRED list: name + one-line description, no schema. */
 export interface ManifestEntry {
   name: string;
   description: string;
 }
 
+/** Options for manifest(). */
+export interface ManifestOptions {
+  /**
+   * false (default): each entry is exactly { name, description }.
+   * true: description becomes `<description> (args: a, b?)` — the
+   * inputSchema.properties keys in declaration order, required ones plain,
+   * optional ones suffixed "?". A tool with no properties is unchanged.
+   */
+  signatures?: boolean;
+}
+
 /**
- * The lean manifest — the "catalog" an agent reads to discover tools cheaply.
- * Full schemas/help are pulled only when a tool is actually used.
+ * The schema-DEFERRED list: name + one-line description per tool, NO
+ * inputSchema. This is NOT what mount() registers — mount() registers the
+ * whole tool (name, one-line description, inputSchema, help), and an MCP
+ * tools/list or WebMCP getTools() host shows the agent name + one-line +
+ * inputSchema. Serve this list only on a host that lets the agent fetch
+ * inputSchema on demand. discoveryCost({ list: "deferred" }) meters this
+ * shape as an upper bound. On such a host the one-liner does all the
+ * disambiguation work; `signatures: true` appends the argument names so
+ * look-alike tools stay distinguishable, at a measurable token cost.
  */
-export function manifest(tools: ReadonlyArray<ToolLike>): ManifestEntry[];
+export function manifest(tools: ReadonlyArray<ToolLike>, opts?: ManifestOptions): ManifestEntry[];
 
 /**
  * The on-demand describe payload for ONE tool — the exact string describe_tool
@@ -327,11 +354,42 @@ export function describeTool(tools: ReadonlyArray<ToolLike>): DescribeToolTool;
 
 // ---------------------------------------------------------------------------
 // Discovery-axis metering (the headline)
+//
+// The lean path is: the tool list for all N tools + the describe_tool
+// descriptor + the describe payload for the `used` tools. The list mode is the
+// only thing the two modes disagree on:
+//   "served"   (default) name + one-line + inputSchema — what mount() registers,
+//                        so what an MCP/WebMCP host shows the agent; only the
+//                        long-form help is deferred. Quote this mode.
+//   "deferred"           name + one-line, NO schema (manifest()) — an upper
+//                        bound valid only on a host that lets you omit
+//                        inputSchema from the list. Standard hosts do not.
 // ---------------------------------------------------------------------------
+
+/**
+ * What the lean tool list carries. "served" is what this library actually
+ * registers; "deferred" is a schema-less upper bound for hosts that allow it.
+ */
+export type DiscoveryListMode = "served" | "deferred";
 
 /** Options shared by discoveryCost() and discoveryBreakEven(). */
 export interface DiscoveryCostOptions {
-  /** Tools the agent describes+calls this visit (default 1, clamped to [0, N]). */
+  /**
+   * "served" (default): the list is name + one-line description + inputSchema
+   * per tool — what defineTool() returns and mount() registers, i.e. what an
+   * MCP tools/list or WebMCP getTools() host shows the agent; only the
+   * long-form help is deferred. "deferred": the list is name + one-line with
+   * NO schema (the manifest() shape) — an upper bound that holds only on a
+   * host that lets you omit inputSchema from the list. Any other value throws.
+   */
+  list?: DiscoveryListMode;
+  /**
+   * Deferred mode only: true appends " (args: a, b?)" to each list line (see
+   * manifest()), so the cost of keeping look-alike tools apart without a
+   * schema is measurable. Ignored in served mode. Default false.
+   */
+  signatures?: boolean;
+  /** Tools the agent describes+calls this visit (default 1, clamped to [0, N]; 0 is accepted). */
   used?: number;
   /** Token gauge (default estimateTokens). */
   estimate?: (s: string) => number;
@@ -348,9 +406,10 @@ export interface TokenLine {
 /**
  * The discovery-axis measurement: the descriptions + schemas an agent loads to
  * CHOOSE among tools, before it calls anything. `saved`/`savedPct` compare the
- * naive up-front load against the lean progressive-disclosure load. Absolute
- * counts are gauge estimates, not tokenizer-exact; the ratio is robust because
- * both paths use the same gauge. Deterministic: same input → identical output.
+ * naive up-front load against the lean progressive-disclosure load in the
+ * chosen list mode. Absolute counts are gauge estimates, not tokenizer-exact;
+ * the ratio is robust because both paths use the same gauge. Deterministic:
+ * same input → identical output.
  */
 export interface DiscoveryReport {
   /** Number of real tools (a describe_tool in the set is filtered out). */
@@ -358,12 +417,19 @@ export interface DiscoveryReport {
   used: number;
   /** Name of the gauge function used (or "custom"). */
   gauge: string;
+  /** The list mode this report was measured under ("served" unless asked otherwise). */
+  list: DiscoveryListMode;
+  /** Whether argument signatures were applied to the list (always false in served mode). */
+  signatures: boolean;
   naive: {
     total: number;
     perTool: TokenLine[];
   };
   lean: {
     total: number;
+    /** Tokens of the tool list in the chosen mode (with schema when served, without when deferred). */
+    list: number;
+    /** Alias of `list`, kept so earlier callers keep working. */
     manifest: number;
     describeToolDescriptor: number;
     onDemand: number;
@@ -377,7 +443,8 @@ export interface DiscoveryReport {
 /**
  * THE HEADLINE — meter the DISCOVERY token axis. Measures tokens, not
  * reasoning quality, and is "per discovery" (per context-load of the tool
- * list), NOT per tool call.
+ * list), NOT per tool call. Defaults to the "served" list mode — the list
+ * this library actually registers on a host, schema included.
  */
 export function discoveryCost(
   tools: ReadonlyArray<ToolLike>,
@@ -398,18 +465,129 @@ export interface BreakEvenReport {
   /** Smallest n where lean first wins, or null if it never does for this set. */
   n: number | null;
   saved: number;
+  /** The list mode the curve was measured under (passed through from opts). */
+  list: DiscoveryListMode;
   perN: BreakEvenPoint[];
 }
 
 /**
  * The honest few-tools caveat, COMPUTED not asserted. Evaluates discoveryCost
  * on prefixes tools.slice(0, n) for n = 1..N and returns the smallest n where
- * lean first wins, plus the full curve.
+ * lean first wins, plus the full curve. `opts` (including `list`) is passed
+ * through to discoveryCost unchanged.
  */
 export function discoveryBreakEven(
   tools: ReadonlyArray<ToolLike>,
   opts?: DiscoveryCostOptions
 ): BreakEvenReport;
+
+// ---------------------------------------------------------------------------
+// Discovery cost over a SESSION, with prompt caching
+//
+// A static tool list sits in a cached prompt prefix from turn 2 on and is
+// cheap to re-read; each deferred describe_tool result arrives once as new
+// input and the describe CALL is generated output. A single-load count
+// (discoveryCost) therefore overstates the lean win over a session.
+// ---------------------------------------------------------------------------
+
+/**
+ * Price ratios relative to fresh input = 1. These are PARAMETERS: the defaults
+ * { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 } are one vendor's
+ * published ratios at the time of writing, not facts about your deployment —
+ * pass your vendor's current ratios. `input` is the unit the other three are
+ * relative to; no term of the model is priced at `input` itself (the turn-1
+ * describe result is charged at cacheWrite, the conservative choice).
+ */
+export interface CachePrices {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+}
+
+/** Options for discoveryCostOverTurns(). `list`, `signatures`, `used`, `estimate`, `fullText` are as discoveryCost. */
+export interface DiscoveryCostOverTurnsOptions extends DiscoveryCostOptions {
+  /** Session length in turns (default 10; integer >= 1, else throws). */
+  turns?: number;
+  /** Price ratios; a partial object merges over the defaults. See CachePrices. */
+  prices?: Partial<CachePrices>;
+  /** Output tokens the agent generates to emit ONE describe_tool call (default 20). */
+  describeCallTokens?: number;
+  /**
+   * true: the list is re-sent fresh every turn — both sides pay cacheWrite
+   * every turn instead of cacheRead. Models a client that re-lists on every
+   * tools/list_changed, or a design that mutates tools/list between turns.
+   * Default false. This library's lean path never changes tools/list.
+   */
+  rebuildListEveryTurn?: boolean;
+}
+
+/** One turn of the session: this turn's cost and the running total, in fresh-input-token units. */
+export interface DiscoveryTurnRow {
+  turn: number;
+  naive: number;
+  lean: number;
+  cumulativeNaive: number;
+  cumulativeLean: number;
+}
+
+/** A naive-vs-lean pair with its saving; savedPct is an integer percent of naive. */
+export interface DiscoverySessionCost {
+  naive: number;
+  lean: number;
+  saved: number;
+  savedPct: number;
+}
+
+/**
+ * Result of discoveryCostOverTurns(). Every option is echoed so a printed
+ * report says which parameters produced it. Nothing is rounded except savedPct.
+ */
+export interface DiscoveryOverTurnsReport {
+  turns: number;
+  used: number;
+  list: DiscoveryListMode;
+  signatures: boolean;
+  /** The merged price ratios the report was computed with. */
+  prices: CachePrices;
+  describeCallTokens: number;
+  rebuildListEveryTurn: boolean;
+  /**
+   * The raw token counts the model was fed, all from discoveryCost() in the
+   * same mode: the naive list, the lean list (list + describe_tool descriptor)
+   * and the sum of the describe results for the `used` tools.
+   */
+  tokens: { naiveList: number; leanList: number; describeResults: number };
+  perTurn: DiscoveryTurnRow[];
+  /** Cumulative over the whole session. */
+  total: DiscoverySessionCost;
+  /** Turn 1 alone: the cache write plus every describe. */
+  turn1: DiscoverySessionCost;
+  /** The per-turn cost from turn 2 on. */
+  steadyState: { naivePerTurn: number; leanPerTurn: number };
+  /**
+   * The earliest turn at which cumulativeLean >= cumulativeNaive — the turn
+   * the lean path stops being cheaper over the session — or null when it is
+   * cheaper on every turn of the session.
+   */
+  crossoverTurn: number | null;
+}
+
+/**
+ * The discovery cost over a session of `turns` turns with the tool list in a
+ * cached prompt prefix. NAIVE: turn 1 = naiveList × cacheWrite, then
+ * naiveList × cacheRead per turn. LEAN: turn 1 = leanList × cacheWrite +
+ * Σ over the used tools of (describeCallTokens × output + describeText ×
+ * cacheWrite), then (leanList + Σ describeText) × cacheRead per turn. All
+ * describes are assumed on turn 1 — the conservative case for lean, since
+ * their results are then re-read on every later turn. Token counts come from
+ * discoveryCost() in the same mode (one source of truth). The price defaults
+ * are parameters — see CachePrices.
+ */
+export function discoveryCostOverTurns(
+  tools: ReadonlyArray<ToolLike>,
+  opts?: DiscoveryCostOverTurnsOptions
+): DiscoveryOverTurnsReport;
 
 // ---------------------------------------------------------------------------
 // Surface analysis — which tools an agent can't tell apart
@@ -546,5 +724,5 @@ export function mount(
 
 // ---------------------------------------------------------------------------
 
-/** The library version (currently "0.6.0"). */
+/** The library version (currently "0.7.0"). */
 export const version: string;

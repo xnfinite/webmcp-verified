@@ -10,13 +10,20 @@
  *     echoes an agent-supplied arg into the result passes that text through
  *     — the library grounds what it derives from your source (see README).
  *
- *  2. CHEAP FOR THE AGENT (the ICM way). Progressive disclosure: agents load
- *     a lean manifest (name + one line), pull full detail only when needed,
- *     and get compact results. Every call's output tokens are metered, so
- *     you can prove the per-call cost — counts, not rounded rates. The bigger
- *     DISCOVERY axis — the descriptions + schemas an agent loads to CHOOSE
- *     among ALL tools — is measured by discoveryCost()/discoveryBreakEven(),
- *     not just per-call output.
+ *  2. CHEAP FOR THE AGENT (the ICM way). Progressive disclosure: the tool
+ *     list an agent reads holds name + one-line description + inputSchema
+ *     (that is what defineTool() returns and mount() registers on an
+ *     MCP/WebMCP host); the long-form `help` is deferred behind describe_tool
+ *     and pulled only for the tool actually used; results are compact. Every
+ *     call's output tokens are metered, so you can prove the per-call cost —
+ *     counts, not rounded rates. The bigger DISCOVERY axis — the descriptions
+ *     + schemas an agent loads to CHOOSE among ALL tools — is measured by
+ *     discoveryCost()/discoveryBreakEven(). Its default ("served") counts the
+ *     list this library actually serves, schema included; its "deferred"
+ *     mode counts a schema-less list and is an upper bound that holds only
+ *     on a host that lets you omit inputSchema from the list.
+ *     discoveryCostOverTurns() carries the same measurement across a session
+ *     with prompt caching, where a single-load count overstates the lean win.
  *
  * Dependency-free ESM. Browser (real WebMCP) + Node (tests). Spec shape per
  * the W3C WebMCP draft: registerTool / getTools / executeTool.
@@ -128,15 +135,15 @@ export class AuditLog {
  * Define one verified tool.
  * @param {Object} def
  * @param {string} def.name
- * @param {string} def.description       lean, agent-facing (first sentence is the manifest line)
- * @param {Object} def.inputSchema       JSON Schema, type:"object"
+ * @param {string} def.description       lean, agent-facing (first sentence is the tool-list line)
+ * @param {Object} def.inputSchema       JSON Schema, type:"object" — part of the served tool list, not deferred
  * @param {()=>any} def.source           the ground truth
  * @param {(args,data)=>(Resolved|null)} def.resolve   pure; null = not answerable from source
  * @param {(args,data)=>Resolved} [def.onUnknown]      fallback (still from source)
  * @param {Surface} [def.surface]        'customer' (default) redacts internal rows
  * @param {string} [def.sourceName]
  * @param {'full'|'compact'} [def.provenance]  'full' sentence (default) or token-lean "✓ sourced"
- * @param {string} [def.help]            long-form detail, kept OUT of the lean surface; served on demand
+ * @param {string} [def.help]            long-form detail, kept OUT of the tool list; served on demand via describe_tool
  * @param {Metrics} [def.metrics]
  */
 export function defineTool(def) {
@@ -228,11 +235,45 @@ export function defineTool(def) {
 }
 
 /**
- * The lean manifest — the "catalog" an agent reads to discover tools cheaply.
- * Full schemas/help are pulled only when a tool is actually used.
+ * The schema-DEFERRED list: name + one-line description per tool, NO
+ * inputSchema. This is NOT what mount() registers — mount() registers the
+ * whole tool (name, one-line description, inputSchema, help), and an MCP
+ * tools/list or WebMCP getTools() host shows the agent name + one-line +
+ * inputSchema. Serve this list only on a host that lets the agent fetch
+ * inputSchema on demand; on a standard host the schema is in the list.
+ * discoveryCost({ list: "deferred" }) meters this shape as an upper bound.
+ *
+ * On such a host the one-liner is doing all the disambiguation work, so
+ * `signatures: true` appends the argument names to each line — a practitioner
+ * on r/mcp asked for exactly this (2026-09-02) so look-alike tools stay
+ * distinguishable without the schema. Its token cost is measurable:
+ * discoveryCost({ list: "deferred", signatures: true }).
+ *
+ * @param {Array} tools
+ * @param {{signatures?:boolean}} [opts]
+ *        signatures  false (default): each entry is exactly { name, description }.
+ *                    true: description becomes `<description> (args: a, b?)` —
+ *                    inputSchema.properties keys in declaration order, required
+ *                    ones plain, optional ones suffixed "?". A tool with no
+ *                    properties is unchanged.
  * @returns {Array<{name:string, description:string}>}
  */
-export function manifest(tools) { return tools.map((t) => ({ name: t.name, description: t.description })); }
+export function manifest(tools, opts = {}) {
+  const signatures = !!opts && opts.signatures === true;
+  return tools.map((t) => ({ name: t.name, description: signatures ? withSignature(t) : t.description }));
+}
+
+/**
+ * `<description> (args: a, b?)` — property keys in declaration order, "?"
+ * marks a property not listed in `required`. A tool with no properties gets
+ * its description back unchanged. Module-private; manifest() is the API.
+ */
+function withSignature(t) {
+  const keys = Object.keys(schemaProps(t));
+  if (keys.length === 0) return t.description;
+  const req = new Set(schemaRequired(t));
+  return `${t.description} (args: ${keys.map((k) => (req.has(k) ? k : k + "?")).join(", ")})`;
+}
 
 /**
  * The on-demand describe payload for ONE tool — the exact string
@@ -272,12 +313,28 @@ export function describeTool(tools) {
  * NAIVE path = what a generic MCP/WebMCP surface forces up front: the result
  * of tools/list (MCP) / navigator.modelContext.getTools() (WebMCP) — a FULL
  * Tool descriptor { name, description, inputSchema } for EVERY registered
- * tool, all resident at once. Base MCP has no lazy/paged descriptor fetch.
+ * tool, with the LONG-FORM description in the list, all resident at once.
+ * Base MCP has no lazy/paged descriptor fetch.
  *
- * LEAN path = this library's progressive disclosure: the name-only manifest
- * for all N tools + the fixed describe_tool descriptor + the full describe
- * payload for only the `used` tools the agent actually pulls. The heavy part
- * (inputSchema + full help) is never loaded for the N−used tools not chosen.
+ * LEAN path = this library's progressive disclosure: the tool list for all N
+ * tools + the fixed describe_tool descriptor + the full describe payload for
+ * only the `used` tools the agent actually pulls. What the list holds is the
+ * `opts.list` choice, and it is the whole difference between the two modes:
+ *
+ *   "served" (DEFAULT) — { name, one-line description, inputSchema } per tool.
+ *     This is what defineTool() returns and what mount() registers, so it is
+ *     the list an MCP tools/list or WebMCP getTools() host actually shows an
+ *     agent. The ONLY thing deferred behind describe_tool is the long-form
+ *     `help`. This is the mode to quote for a standard host.
+ *   "deferred" — { name, one-line description } per tool, NO schema (the
+ *     manifest() shape). An UPPER BOUND: it holds only on a host that lets
+ *     you omit inputSchema from the list and fetch it on demand. Standard
+ *     MCP/WebMCP hosts do not, and lazy-loading schemas is what practitioners
+ *     on r/mcp report causes tools/list_changed churn.
+ *
+ * Nothing else differs between the modes: the naive side, the describe_tool
+ * descriptor and the on-demand payload are identical, so served − deferred is
+ * exactly the schema payload inside the list's JSON layout.
  *
  * Both paths are serialized identically (canonical JSON.stringify) and counted
  * with the SAME gauge, so `savedPct` and the break-even are robust to the ~4-
@@ -289,42 +346,67 @@ export function describeTool(tools) {
  *
  * @param {Array} tools  the real tool set (a `describe_tool` in it is filtered
  *                       out to avoid double-counting the meta-tool overhead)
- * @param {{used?:number, estimate?:(s:string)=>number, fullText?:(t:any)=>string}} [opts]
- *        used     tools the agent describes+calls this visit (default 1, clamped to [0,N])
- *        estimate token gauge (default estimateTokens)
- *        fullText naive `description` text (default t.help||t.description — the
- *                 full explanation you'd otherwise ship with no help split)
+ * @param {{list?:'served'|'deferred', signatures?:boolean, used?:number, estimate?:(s:string)=>number, fullText?:(t:any)=>string}} [opts]
+ *        list       "served" (default): the list carries inputSchema, as mount()
+ *                   registers it. "deferred": schema-less list; upper bound for a
+ *                   host that lets you omit inputSchema from the list.
+ *        signatures deferred mode only: true appends " (args: a, b?)" to each
+ *                   list line (see manifest()), so the cost of keeping look-alike
+ *                   tools apart without a schema is measurable. Ignored in served
+ *                   mode, where the schema is already in the list. Default false.
+ *        used       tools the agent describes+calls this visit (default 1, clamped to [0,N])
+ *        estimate   token gauge (default estimateTokens)
+ *        fullText   naive `description` text (default t.help||t.description — the
+ *                   full explanation you'd otherwise ship with no help split)
+ * @returns {{tools:number, used:number, gauge:string, list:'served'|'deferred', signatures:boolean,
+ *   naive:{total:number, perTool:Array<{name:string,tokens:number}>},
+ *   lean:{total:number, list:number, manifest:number, describeToolDescriptor:number, onDemand:number, describedTools:Array<{name:string,tokens:number}>},
+ *   saved:number, savedPct:number, leanWins:boolean}}
+ *   lean.list is the tokens of the list in the chosen mode; lean.manifest is
+ *   an alias of lean.list kept so earlier callers keep working. `signatures`
+ *   echoes whether argument signatures were applied to the list (always false
+ *   in served mode).
  */
 export function discoveryCost(tools, opts = {}) {
   const estimate = opts.estimate || estimateTokens;
   const fullText = opts.fullText || ((t) => t.help || t.description || "");
+  const list = opts.list == null ? "served" : opts.list;
+  assert(list === "served" || list === "deferred", `discoveryCost: opts.list must be "served" or "deferred", got ${JSON.stringify(opts.list)}`);
+  const signatures = list === "deferred" && opts.signatures === true;
   const real = (tools || []).filter((t) => t && t.name !== "describe_tool");
   const N = real.length;
   let used = opts.used == null ? 1 : opts.used;
   used = Math.max(0, Math.min(used, N));
 
-  // NAIVE: every tool's full descriptor, resident up front.
+  // NAIVE: every tool's full descriptor (long-form text + schema), resident up front.
   const perTool = real.map((t) => ({
     name: t.name,
     tokens: estimate(JSON.stringify({ name: t.name, description: fullText(t), inputSchema: t.inputSchema }))
   }));
   const naiveTotal = perTool.reduce((a, p) => a + p.tokens, 0);
 
-  // LEAN: name-only manifest (all N) + fixed describe_tool descriptor +
-  // full describe payload for only the `used` tools.
-  const manifestTokens = estimate(JSON.stringify(manifest(real)));
+  // LEAN: the tool list (all N) + fixed describe_tool descriptor + full
+  // describe payload for only the `used` tools. The list is the only term
+  // that depends on the mode.
+  //   served   — name + one-line + inputSchema: what mount() registers.
+  //   deferred — name + one-line, no schema: manifest(); an upper bound.
+  //              With signatures, each line also carries " (args: a, b?)".
+  const listTokens = list === "served"
+    ? estimate(JSON.stringify(real.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }))))
+    : estimate(JSON.stringify(manifest(real, { signatures })));
   const dt = describeTool(real);
   const describeToolDescriptor = estimate(JSON.stringify({ name: dt.name, description: dt.description, inputSchema: dt.inputSchema }));
   const describedTools = real.slice(0, used).map((t) => ({ name: t.name, tokens: estimate(describeText(t)) }));
   const onDemand = describedTools.reduce((a, d) => a + d.tokens, 0);
-  const leanTotal = manifestTokens + describeToolDescriptor + onDemand;
+  const leanTotal = listTokens + describeToolDescriptor + onDemand;
 
   const saved = naiveTotal - leanTotal;
   const savedPct = naiveTotal === 0 ? 0 : Math.round((saved / naiveTotal) * 100);
   return {
-    tools: N, used, gauge: estimate.name || "custom",
+    tools: N, used, gauge: estimate.name || "custom", list, signatures,
     naive: { total: naiveTotal, perTool },
-    lean: { total: leanTotal, manifest: manifestTokens, describeToolDescriptor, onDemand, describedTools },
+    // `manifest` is an alias of `list`, kept so earlier callers keep working.
+    lean: { total: leanTotal, list: listTokens, manifest: listTokens, describeToolDescriptor, onDemand, describedTools },
     saved, savedPct, leanWins: saved > 0
   };
 }
@@ -334,21 +416,165 @@ export function discoveryCost(tools, opts = {}) {
  * on prefixes tools.slice(0,n) for n=1..N and returns the smallest n where
  * lean first wins, plus the full curve — the reproducible "where the line is"
  * number. Lean loses at few tools (the describe_tool round-trip costs more
- * than it saves); this reports exactly where it flips for a given set.
- * @returns {{n:number|null, saved:number, perN:Array<{n:number,naive:number,lean:number,saved:number,leanWins:boolean}>}}
+ * than it saves); this reports exactly where it flips for a given set. `opts`
+ * (including `list`) is passed through to discoveryCost unchanged, and the
+ * mode it ran under is echoed back as `list`.
+ * @returns {{n:number|null, saved:number, list:'served'|'deferred', perN:Array<{n:number,naive:number,lean:number,saved:number,leanWins:boolean}>}}
  */
 export function discoveryBreakEven(tools, opts = {}) {
   const real = (tools || []).filter((t) => t && t.name !== "describe_tool");
   const N = real.length;
   const perN = [];
   let firstWin = null;
+  let list = opts.list == null ? "served" : opts.list;
   for (let n = 1; n <= N; n++) {
     const c = discoveryCost(real.slice(0, n), opts);  // used clamps to n inside
+    list = c.list;
     perN.push({ n, naive: c.naive.total, lean: c.lean.total, saved: c.saved, leanWins: c.leanWins });
     if (firstWin === null && c.leanWins) firstWin = n;
   }
   const saved = firstWin !== null ? perN[firstWin - 1].saved : (perN.length ? perN[perN.length - 1].saved : 0);
-  return { n: firstWin, saved, perN };
+  return { n: firstWin, saved, list, perN };
+}
+
+/**
+ * Default price ratios for discoveryCostOverTurns — PARAMETERS, not facts.
+ * One vendor's published ratios at the time of writing, relative to fresh
+ * input = 1. Pass `prices` to override; a partial object merges over these.
+ */
+const DEFAULT_CACHE_PRICES = Object.freeze({ input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 });
+
+/**
+ * The discovery cost over a SESSION, with prompt caching. Practitioners on
+ * r/mcp pointed out (2026-09-02) that a static tool list sits in a cached
+ * prompt prefix from turn 2 on and is cheap to re-read, while every deferred
+ * describe_tool result arrives once as new input and the describe CALL itself
+ * is generated output. A single-load token count (discoveryCost) therefore
+ * OVERSTATES the lean win over a session. This returns the session figure.
+ *
+ * THE MODEL, in words. A session is T turns. On every turn the whole tool
+ * list is in the prompt prefix. Prices are ratios relative to fresh input = 1,
+ * so every cost below is in fresh-input-token units (tokens × price).
+ *
+ *   NAIVE  turn 1      = naiveList × cacheWrite
+ *          turns 2..T  = naiveList × cacheRead                      (each turn)
+ *   LEAN   turn 1      = leanList × cacheWrite
+ *                      + Σ over the `used` tools of
+ *                          describeCallTokens × output + describeText(tool) × cacheWrite
+ *          turns 2..T  = (leanList + Σ describeText(tool)) × cacheRead   (each turn)
+ *
+ * where naiveList = discoveryCost().naive.total (every tool's full descriptor),
+ * leanList = discoveryCost().lean.list + lean.describeToolDescriptor (the list
+ * in the chosen mode plus the describe_tool descriptor registered beside the
+ * tools), and describeText(tool) is the exact describe_tool result for each
+ * used tool (lean.describedTools). Every token count comes from discoveryCost()
+ * in the same mode, so there is one source of truth.
+ *
+ * With rebuildListEveryTurn the prefix is re-sent fresh on every turn: both
+ * sides pay cacheWrite every turn instead of cacheRead. That models a client
+ * that re-lists on every tools/list_changed notification, or a design that
+ * mutates tools/list between turns (lazy-loading schemas does). This library's
+ * lean path does neither: describe_tool returns a RESULT and never
+ * re-registers anything, so tools/list is unchanged across the session
+ * (smoke test T50 pins this).
+ *
+ * CONSERVATIVE ASSUMPTIONS — each one costs the lean path, none costs naive:
+ *   - All `used` describes happen on turn 1, so their results sit in the cached
+ *     history and are re-read on every later turn — the largest number of
+ *     turns they could be paid for. Describing later in the session costs less.
+ *   - A describe result is charged at cacheWrite on turn 1 (it becomes part of
+ *     the cached history from turn 2), not at the fresh-input price — the
+ *     dearer of the two whenever cacheWrite >= input.
+ *   - User turns, answers and the tool calls themselves are identical on both
+ *     paths and are excluded from both.
+ * Not modelled, and in lean's favour: the extra request a describe_tool
+ * round-trip adds inside turn 1 (it re-reads the prefix at cacheRead), and the
+ * cached re-read of the describe call's own tokens on later turns. Both are
+ * small; state them if you quote a figure to a decimal.
+ *
+ * THE PRICES ARE PARAMETERS. The defaults { input: 1, output: 5,
+ * cacheWrite: 1.25, cacheRead: 0.1 } are one vendor's published ratios at the
+ * time of writing, relative to fresh input = 1. They are not facts about your
+ * deployment: pass `prices` with your vendor's current ratios (a partial object
+ * merges over the defaults). `input` is the unit the other three are relative
+ * to; no term of the model is priced at `input` itself, because the turn-1
+ * describe result is charged at cacheWrite (see above).
+ *
+ * Deterministic and dependency-free. Nothing is rounded except savedPct.
+ *
+ * @param {Array} tools  the real tool set (a describe_tool in it is filtered out)
+ * @param {{turns?:number, used?:number, list?:'served'|'deferred', signatures?:boolean,
+ *   prices?:{input?:number, output?:number, cacheWrite?:number, cacheRead?:number},
+ *   describeCallTokens?:number, rebuildListEveryTurn?:boolean,
+ *   estimate?:(s:string)=>number, fullText?:(t:any)=>string}} [opts]
+ *        turns                session length in turns (default 10; integer >= 1)
+ *        used                 tools described over the session (default 1; clamped to [0, N])
+ *        list                 "served" (default) | "deferred", as discoveryCost
+ *        signatures           passed to manifest() in deferred mode (default false)
+ *        prices               price ratios relative to fresh input = 1 (see above)
+ *        describeCallTokens   output tokens the agent generates to emit ONE
+ *                             describe_tool call (default 20)
+ *        rebuildListEveryTurn true: the list is re-sent fresh every turn (default false)
+ *        estimate, fullText   as discoveryCost
+ * @returns {{turns:number, used:number, list:'served'|'deferred', signatures:boolean,
+ *   prices:{input:number, output:number, cacheWrite:number, cacheRead:number},
+ *   describeCallTokens:number, rebuildListEveryTurn:boolean,
+ *   tokens:{naiveList:number, leanList:number, describeResults:number},
+ *   perTurn:Array<{turn:number, naive:number, lean:number, cumulativeNaive:number, cumulativeLean:number}>,
+ *   total:{naive:number, lean:number, saved:number, savedPct:number},
+ *   turn1:{naive:number, lean:number, saved:number, savedPct:number},
+ *   steadyState:{naivePerTurn:number, leanPerTurn:number},
+ *   crossoverTurn:number|null}}
+ *   `tokens` echoes the three raw counts the model was fed. `steadyState` is
+ *   the per-turn cost from turn 2 on. `crossoverTurn` is the earliest turn at
+ *   which cumulativeLean >= cumulativeNaive — the turn the lean path stops
+ *   being cheaper over the session — or null when it is cheaper on every turn
+ *   of the session. savedPct is an integer percent of the naive figure.
+ */
+export function discoveryCostOverTurns(tools, opts = {}) {
+  const turns = opts.turns == null ? 10 : opts.turns;
+  assert(Number.isInteger(turns) && turns >= 1, `discoveryCostOverTurns: opts.turns must be an integer >= 1, got ${JSON.stringify(opts.turns)}`);
+  const describeCallTokens = opts.describeCallTokens == null ? 20 : opts.describeCallTokens;
+  assert(typeof describeCallTokens === "number" && Number.isFinite(describeCallTokens) && describeCallTokens >= 0,
+    `discoveryCostOverTurns: opts.describeCallTokens must be a finite number >= 0, got ${JSON.stringify(opts.describeCallTokens)}`);
+  const prices = { ...DEFAULT_CACHE_PRICES, ...(opts.prices || {}) };
+  for (const k of Object.keys(DEFAULT_CACHE_PRICES)) {
+    assert(typeof prices[k] === "number" && Number.isFinite(prices[k]) && prices[k] >= 0, `discoveryCostOverTurns: opts.prices.${k} must be a finite number >= 0, got ${JSON.stringify(prices[k])}`);
+  }
+  const rebuildListEveryTurn = opts.rebuildListEveryTurn === true;
+
+  // One source of truth for every token count: discoveryCost() in the same mode.
+  const cost = discoveryCost(tools, { list: opts.list, used: opts.used, signatures: opts.signatures, estimate: opts.estimate, fullText: opts.fullText });
+  const used = cost.used;
+  const naiveList = cost.naive.total;
+  const leanList = cost.lean.list + cost.lean.describeToolDescriptor;
+  const describeResults = cost.lean.onDemand;   // Σ describeText over the used tools
+
+  const laterPrice = rebuildListEveryTurn ? prices.cacheWrite : prices.cacheRead;
+  const naiveTurn1 = naiveList * prices.cacheWrite;
+  const leanTurn1 = leanList * prices.cacheWrite + used * describeCallTokens * prices.output + describeResults * prices.cacheWrite;
+  const naivePerTurn = naiveList * laterPrice;
+  const leanPerTurn = (leanList + describeResults) * laterPrice;
+
+  const perTurn = [];
+  let cumulativeNaive = 0, cumulativeLean = 0, crossoverTurn = null;
+  for (let turn = 1; turn <= turns; turn++) {
+    const naive = turn === 1 ? naiveTurn1 : naivePerTurn;
+    const lean = turn === 1 ? leanTurn1 : leanPerTurn;
+    cumulativeNaive += naive; cumulativeLean += lean;
+    perTurn.push({ turn, naive, lean, cumulativeNaive, cumulativeLean });
+    if (crossoverTurn === null && cumulativeLean >= cumulativeNaive) crossoverTurn = turn;
+  }
+  const pct = (naive, lean) => (naive === 0 ? 0 : Math.round(((naive - lean) / naive) * 100));
+  return {
+    turns, used, list: cost.list, signatures: cost.signatures, prices, describeCallTokens, rebuildListEveryTurn,
+    tokens: { naiveList, leanList, describeResults },
+    perTurn,
+    total: { naive: cumulativeNaive, lean: cumulativeLean, saved: cumulativeNaive - cumulativeLean, savedPct: pct(cumulativeNaive, cumulativeLean) },
+    turn1: { naive: naiveTurn1, lean: leanTurn1, saved: naiveTurn1 - leanTurn1, savedPct: pct(naiveTurn1, leanTurn1) },
+    steadyState: { naivePerTurn, leanPerTurn },
+    crossoverTurn
+  };
 }
 
 /**
@@ -571,9 +797,10 @@ export function variationCandidates(tools, opts = {}) {
   }).sort((a, b) => byName(a.base, b.base));
 
   const involved = [...new Set(families.flatMap((f) => f.tools))].sort(byName);
-  // involved.length / tools is the closest a static check gets to Appbot's
-  // "how many of those twelve answer questions a human would phrase the same
-  // way" — as a count of QUESTIONS RAISED, never a defect rate or a score.
+  // involved.length / tools is the closest a static check gets to the r/mcp
+  // practitioner's "how many of those twelve answer questions a human would
+  // phrase the same way" — as a count of QUESTIONS RAISED, never a defect
+  // rate or a score.
   return { tools: real.length, strict, families, involved };
 }
 
@@ -584,4 +811,4 @@ export function mount(host, tools, opts = {}) {
   return { count: tools.length, metrics: tools[0] && tools[0]._metrics, unregister() { for (const h of handles) if (h && h.unregister) h.unregister(); } };
 }
 
-export const version = "0.6.0";
+export const version = "0.7.0";

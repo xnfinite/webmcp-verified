@@ -29,11 +29,18 @@ const failLines = (smoke.out.match(/^FAIL /gm) || []).length;
 const allPass = /ALL SMOKE TESTS PASSED/.test(smoke.out);
 const metrics = (example.out.match(/"get_quote":\s*\{[^}]*\}/) || ["(not captured)"])[0];
 // The measured DISCOVERY headline line, verbatim from the benchmark (not hand-typed).
+// The bare "N tools cost …" line is the SERVED figure (schema in the list — what
+// mount() registers); benchmark.mjs prints the schema-deferred upper bound on
+// its own prefixed line so it can never be scraped as the headline.
 const discoveryHeadline = ((benchmark.out.match(/^\d+ tools cost .*$/m) || ["(not captured)"])[0]).trim();
+const discoveryDeferred = ((benchmark.out.match(/^schema-deferred: (\d+ tools cost .*)$/m) || [null, "(not captured)"])[1]).trim();
 // The REAL-surface figures, pulled from scripts/real-mcp.mjs output (14 tools, 5 official servers).
-const rm = (re) => { const m = realMcp.out.match(re); return m ? m[1] : "?"; };
-const realNaive = rm(/naive:?\s*(\d+)/i), realLean = rm(/lean:?\s*(\d+)/i);
-const realPct = rm(/\((\d+)%\)/), realBreakEven = rm(/break-even\s*n\s*=\s*(\d+)/i);
+// real-mcp.mjs prints the SERVED block first, then the schema-deferred block:
+// match index 0 is served, index 1 is deferred.
+const rm = (re, i = 0) => { const all = [...realMcp.out.matchAll(re)].map((m) => m[1]); return all[i] == null ? "?" : all[i]; };
+const realNaive = rm(/naive:?\s*(\d+)/gi), realLean = rm(/lean:?\s*(\d+)/gi);
+const realPct = rm(/\((\d+)%\)/g), realBreakEven = rm(/break-even\s*n\s*=\s*(\d+)/gi);
+const realLeanD = rm(/lean:?\s*(\d+)/gi, 1), realPctD = rm(/\((\d+)%\)/g, 1), realBreakEvenD = rm(/break-even\s*n\s*=\s*(\d+)/gi, 1);
 const stamp = new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
 
 const md = `# Evidence — auto-generated
@@ -60,26 +67,45 @@ ${metrics}
 
 - **Discovery axis (the headline):** ${benchmark.ok ? "measured" : "ERROR"} by
   \`node scripts/benchmark.mjs\` on an illustrative 12-tool store/service
-  surface (\`scripts/_surface.mjs\`) —
+  surface (\`scripts/_surface.mjs\`). The list an agent reads carries name +
+  one-line description + inputSchema — that is what \`mount()\` registers on an
+  MCP/WebMCP host — and only the long-form help is deferred behind
+  \`describe_tool\`.
+
+  served: schema in the list (what mount() registers on an MCP/WebMCP host)
 
   > ${discoveryHeadline}
+
+  schema-deferred: only if your host lets you omit inputSchema from the list
+  (an upper bound, not what a standard host serves)
+
+  > ${discoveryDeferred}
 
   This is the cost an agent pays to CHOOSE among tools (descriptions + schemas),
   per context-load of the tool list. \`estimateTokens\` is a ~4-char gauge, so
   absolute counts are approximate; \`savedPct\` and the break-even n are the
   robust figures (both paths use the same gauge, so the factor cancels). It
-  counts tokens, not reasoning quality. The exact numbers are pinned by smoke
-  test T38, so this line cannot silently drift from the code.
+  counts tokens, not reasoning quality. The exact numbers in both modes are
+  pinned by smoke test T38, so these lines cannot silently drift from the code.
 
 - **Real MCP surface (the number to quote):** ${realMcp.ok ? "measured" : "ERROR"} by
   \`npm run real-mcp\` on 14 real tools from 5 official MCP servers
-  (filesystem, github, git, fetch, memory — \`scripts/_real-mcp-surface.mjs\`) —
+  (filesystem, github, git, fetch, memory — \`scripts/_real-mcp-surface.mjs\`).
+
+  served: schema in the list (what mount() registers on an MCP/WebMCP host)
 
   > naive ${realNaive} tokens → lean ${realLean} tokens — ${realPct}% saved, break-even n=${realBreakEven}
 
-  Lower than the illustrative surface because real surfaces mix paragraph-long
-  and one-line tools. Same caveat: this is a COST axis; it says nothing about
-  whether the agent picks the right tool.
+  schema-deferred: only if your host lets you omit inputSchema from the list
+
+  > naive ${realNaive} tokens → lean ${realLeanD} tokens — ${realPctD}% saved, break-even n=${realBreakEvenD}
+
+  Lower than the illustrative surface: on real servers the schema payload
+  outweighs the long-form help text, so deferring help alone saves little, and
+  the schema-deferred figure is reachable only on a host that lets you omit
+  inputSchema from the list. Both modes are pinned by smoke test T46. Same
+  caveat: this is a COST axis; it says nothing about whether the agent picks
+  the right tool.
 
 ## Raw smoke output
 

@@ -36,14 +36,28 @@ directional and re-check dates — the space moves monthly.
    answers. This layer does, by construction. This is the icm-verifier discipline as code.
 2. **Token efficiency (ICM progressive disclosure).** Agents pay per tool
    description (discovery) and per result. The headline is the DISCOVERY axis,
-   now measured on a REAL surface: 14 tools from 5 official MCP servers cost
-   536 lean tokens vs 1217 naive to discover a tool — 56% fewer, break-even n=3
-   (`npm run real-mcp`). The illustrative 12-tool surface is 443 vs 1340, 67%,
-   break-even n=2 (`npm run discovery`, pinned by smoke test T38); a real BPE
-   tokenizer gives 66% vs the gauge's 67% (`npm run tokenizer`). This is a COST
-   axis only — it does not make an agent pick better (see the README correction). Plus compact provenance (measured 8 vs 26 tokens
-   whole output; the provenance line itself ~3 vs ~20) and per-call token
-   metering. A real cost lever the general SDKs don't frame around.
+   now measured on a REAL surface — on the served list a standard MCP/WebMCP
+   host actually shows (schema included in `tools/list`, the library's
+   default): 14 tools from 5 official MCP servers cost 1112 lean tokens vs
+   1217 naive to discover a tool — 9% fewer, break-even n=4 (`npm run
+   real-mcp`). The illustrative 12-tool surface, served, is 882 vs 1340, 34%,
+   break-even n=4 (`npm run discovery`, pinned by smoke tests T38/T46/T47).
+   `list:"deferred"` — schema omitted from the list entirely, an explicit
+   upper bound that only holds on a host that lets a tool list skip
+   `inputSchema` — is 536 vs 1217 (56%) real and 443 vs 1340 (67%)
+   illustrative; a real BPE tokenizer confirms the ratio per mode (`npm run
+   tokenizer`). Priced over a session under prompt caching
+   (`discoveryCostOverTurns`, `npm run cache-curve`): real served saved% by
+   turn 1/2/5/10/20/50 is 2/3/4/5/6/7 (no crossover, steady state 121.7
+   naive vs 111.2 lean tokens/turn); real deferred is 49% -> 55% over the
+   same turns. A client that rebuilds the tool list every turn instead of
+   trusting a cached prefix prices out differently — real served at turns=10
+   is 8% under that assumption vs 5% with caching
+   (`{ rebuildListEveryTurn: true }`). This is a COST axis only — it does not
+   make an agent pick better (see the README correction). Plus compact
+   provenance (measured 8 vs 26 tokens whole output; the provenance line
+   itself ~3 vs ~20) and per-call token metering. A real cost lever the
+   general SDKs don't frame around.
 3. **Protocol-agnostic trust layer.** The `source`/`resolve`/`surface`
    discipline is not WebMCP-specific; it maps onto ACP/MCP tool surfaces too.
    Position as "the trust + cost layer for agent tools," not "a WebMCP SDK."
@@ -111,15 +125,20 @@ tracked here:
 - [x] Ship `.d.ts` types (emit from JSDoc) — typed libs get recommended
       by default. **Delivered** — `src/index.d.ts` + `src/harness.d.ts` ship,
       the `types` field resolves to them, and smoke tests TD1–TD3 assert the
-      declared exports don't drift from the runtime (15 index + 3 harness).
+      declared exports don't drift from the runtime (16 index + 3 harness).
 - [x] `manifestCost(tools)` / `describeCost(name)` — meter the DISCOVERY
       token axis (the actual "cheap for the agent" pitch), not just output.
-      **Delivered v0.6** as `discoveryCost(tools)` (lean vs naive, saved,
-      savedPct, leanWins) + `discoveryBreakEven(tools)` (the computed N where
-      lean starts to win). Measured on a 12-tool set: 443 vs 1340 tokens,
-      67% saved (897 tokens), break-even n=2. Headline reproduced by
-      `node scripts/benchmark.mjs` (pinned by smoke test T38); the sibling
-      `scripts/discovery.mjs` prints the per-tool composition. See `EVIDENCE.md`.
+      **Delivered v0.6**, revised v0.7 — `discoveryCost(tools, { list })`
+      (lean vs naive, saved, savedPct, leanWins) + `discoveryBreakEven(tools)`
+      (the computed N where lean starts to win), now with an explicit
+      `list:"served"|"deferred"` mode (see the dated 2026-09-02 entries
+      below for why the v0.6 default changed). Measured on the illustrative
+      12-tool set, served (the default, schema in the list): 882 vs 1340
+      tokens, 34% saved, break-even n=4. `list:"deferred"` — an upper bound,
+      not the standard-host number — is 443 vs 1340, 67% saved (897 tokens),
+      break-even n=2. Headline reproduced by `node scripts/benchmark.mjs`
+      (pinned by smoke test T38); the sibling `scripts/discovery.mjs` prints
+      the per-tool composition. See `EVIDENCE.md`.
 - [x] `@mcp-b/webmcp` interop example. **Delivered** —
       `examples/mcp-b-interop.mjs` mounts a verified tool onto an
       @mcp-b-style host by its `registerTool` alone and drives
@@ -135,6 +154,45 @@ tracked here:
       parameter). False-positive control pinned by smoke test T40: 0 families on
       the 14 real MCP tools. The same feedback produced the README correction
       that the lean manifest is a cost lever, not an accuracy fix.
+- [x] `discoveryCost` served/deferred model (2026-09-02). The v0.6 number
+      assumed the schema could be dropped from the tool list unconditionally;
+      MCP requires `inputSchema` in `tools/list` (spec schema.ts, no `?`
+      marker, MCP 2025-06-18 and 2026-07-28) and `mount()` registers it
+      regardless of host, so that number was an upper bound dressed as the
+      default. **Fixed** — `discoveryCost(tools, { list })` now defaults to
+      `list:"served"` (schema in the list, what `mount()` actually
+      registers) and treats `list:"deferred"` as an explicit, separately
+      labelled option (permitted, not required, by the WebMCP CG's draft
+      WebIDL — https://webmachinelearning.github.io/webmcp/ — which lists
+      `object inputSchema;` with no `required` keyword). Real 14-tool
+      surface: served 9% saved (break-even n=4), deferred 56% (break-even
+      n=3); illustrative: served 34% (n=4), deferred 67% (n=2). Pinned by
+      smoke tests T38/T46/T47 (`npm run real-mcp`, `npm run discovery`).
+- [x] `discoveryCostOverTurns(tools, opts)` (2026-09-02). Raw discovery
+      tokens are not session cost under prompt caching — a static tool list
+      sits in the cached prefix from turn 2 on and is cheap to re-read.
+      **Delivered** — prices a session with `prices` and
+      `describeCallTokens` as overridable parameters, not hardcoded facts.
+      Real 14-tool surface, served, used=1: cumulative saved% by turn
+      1/2/5/10/20/50 = 2/3/4/5/6/7 (no crossover, steady state 121.7 naive
+      vs 111.2 lean tokens/turn); deferred goes 49% -> 55% over the same
+      turns. Pinned by smoke tests T48(a)-(e) (`npm run cache-curve`).
+- [x] `manifest(tools, { signatures: true })` (2026-09-02) — on a
+      `list:"deferred"` host the one-liner does all the disambiguation
+      work, so this appends `(args: a, b?)` to each description (argument
+      names in declaration order, "?" marks optional), a fix a r/mcp
+      practitioner asked for directly. **Delivered with its cost measured,
+      not just its benefit**: real 14-tool deferred list goes 321 -> 444
+      tokens (+123), savedPct 56% -> 46%; illustrative 275 -> 364 (+89),
+      67% -> 60%. Served mode ignores it (the schema already carries the
+      argument names). Pinned by smoke test T49.
+- [x] Static-list test (2026-09-02) — the lean path only keeps its cache-
+      prefix advantage (see `discoveryCostOverTurns` above) if
+      `describe_tool` never re-registers or mutates a tool, so `tools/list`
+      stays byte-identical across a session. **Delivered and pinned** —
+      smoke test T50 mounts the real 14-tool surface, describes every tool
+      (plus one miss), and asserts the `registerTool` count, the registered
+      object references, and the served list/manifest are all unchanged.
 
 ## Build order (not one go)
 

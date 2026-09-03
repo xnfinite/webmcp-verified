@@ -1,16 +1,23 @@
 /**
  * overlap.mjs — does the discovery saving depend on schema DISTINCTNESS?
  *
- * Answering a real r/mcp question: a commenter noted the tool-selection drop is
- * driven by OVERLAP, not count — two tools that both take {query:string} are
- * indistinguishable at call time — and asked whether the 67% held when the
- * schemas were genuinely distinct.
+ * Answering a real r/mcp question: a practitioner noted the tool-selection drop
+ * is driven by OVERLAP, not count — two tools that both take {query:string} are
+ * indistinguishable at call time — and asked whether the headline saving held
+ * when the schemas were genuinely distinct.
  *
  * Controlled test: the SAME 12 tools (same names, one-line descriptions, and
  * long-form help), measured twice, with the ONLY variable being the input
  * schema:
  *   A) DISTINCT   — each tool's real 2–4 property schema (the shipped surface)
  *   B) OVERLAPPING — every schema replaced by an identical { query: string }
+ *
+ * Each is printed in both list modes, served first: served is the list
+ * mount() registers (schema in the list, only the help deferred); schema-
+ * deferred is the upper bound for a host that lets you omit inputSchema from
+ * the list. Because the schema sits in the served list on both sides, schema
+ * distinctness moves the served numbers through the naive side and the list
+ * alike.
  *
  * This measures the TOKEN axis (discoveryCost), not pick accuracy. Token cost
  * and disambiguation are different problems; progressive disclosure only
@@ -35,12 +42,20 @@ const rows = [
   ["OVERLAPPING (all { query: string })", overlapping]
 ];
 
+const MODES = [
+  ["served", "served: schema in the list (what mount() registers on an MCP/WebMCP host)"],
+  ["deferred", "schema-deferred: only if your host lets you omit inputSchema from the list"]
+];
+
 console.log("DISCOVERY TOKEN COST — schema distinctness held as the only variable\n");
 for (const [label, tools] of rows) {
-  const c = discoveryCost(tools);
-  const be = discoveryBreakEven(tools);
   console.log(label);
-  console.log(`  naive ${String(c.naive.total).padStart(5)}   lean ${String(c.lean.total).padStart(4)}   saved ${String(c.saved).padStart(4)} (${c.savedPct}%)   break-even n=${be.n}`);
+  for (const [list, modeLabel] of MODES) {
+    const c = discoveryCost(tools, { list });
+    const be = discoveryBreakEven(tools, { list });
+    console.log(`  ${modeLabel}`);
+    console.log(`    naive ${String(c.naive.total).padStart(5)}   lean ${String(c.lean.total).padStart(4)}   saved ${String(c.saved).padStart(4)} (${c.savedPct}%)   break-even n=${be.n}`);
+  }
 }
 // The disambiguation axis: which tools an agent literally cannot tell apart.
 const oc = schemaCollisions(overlapping);
@@ -49,8 +64,9 @@ console.log(`  DISTINCT surface:    ${schemaCollisions(distinct).length} collisi
 console.log(`  OVERLAPPING surface: ${oc.length} group of ${oc[0] ? oc[0].tools.length : 0} indistinguishable tools`);
 
 // The other half of the disambiguation axis: not "identical at call time" but
-// "this looks like one tool with a parameter." Answers Appbot_official's rule
-// directly — a variation on the same question should have been a parameter.
+// "this looks like one tool with a parameter." Answers the rule a practitioner
+// on r/mcp who runs a production MCP server stated directly — a variation on
+// the same question should have been a parameter.
 const appbot = [
   ["get_reviews", { app_id: "string", page: "number" }, ["app_id"]],
   ["get_reviews_by_version", { app_id: "string", page: "number", version: "string" }, ["app_id"]],
