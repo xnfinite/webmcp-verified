@@ -1,7 +1,7 @@
 {
   "name": "webmcp-verified",
   "version": "0.7.0",
-  "description": "Build agent tools that can't invent values outside your data. Answers derive from a declared source; off-source returns a fallback, never a guess. Token-lean, with an audit receipt. WebMCP/MCP, zero dependencies.",
+  "description": "Source-grounded MCP/WebMCP tool library. Tools answer from data you declare or return a declared fallback, never an invented value, and can emit a fingerprinted receipt per answer. Zero runtime deps, ESM, MIT.",
   "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
@@ -32,22 +32,20 @@
     "cache-curve": "node scripts/cache-curve.mjs"
   },
   "keywords": [
+    "mcp",
     "webmcp",
-    "web-model-context-protocol",
+    "model-context-protocol",
     "navigator.modelContext",
+    "mcp-tools",
     "ai-agents",
     "agent-tools",
-    "agentic-web",
-    "agent-ready",
-    "mcp",
-    "mcp-tools",
-    "tool-provenance",
+    "tool-calling",
     "source-grounded",
     "grounded-tools",
-    "grounded-ai",
+    "tool-provenance",
+    "audit-trail",
     "token-efficient",
-    "ai-accountability",
-    "audit-trail"
+    "zero-dependencies"
   ],
   "license": "MIT",
   "author": "Nightflow Systems",
